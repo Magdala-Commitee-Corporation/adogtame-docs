@@ -1,4 +1,4 @@
-# ADOGTAME — Documento base de análisis
+# ADOGTAME — Documento base de análisis (v2)
 
 > Reconstrucción de lo planteado en el informe original (Grupo 1, 4.º semestre, ESPE) como punto de partida para la materia de **Construcción y Evolución de Software**.
 > Fuente principal: `Grupo_1_-_Informe_Proyecto_ADOGTAME.pdf`. Donde se añade algo que **no** estaba en el informe, se marca explícitamente como _[Observación]_ o _[Propuesta]_. Las especificaciones nuevas definidas después del informe se marcan como _[Nuevo]_. Las especificaciones existentes modificadas después del informe se marcan como _[Actualizado]_.
@@ -6,6 +6,8 @@
 > **Módulo de usuarios integrado.** _[Actualizado]_ Incorpora los roles, el administrador, los requisitos, casos de uso y DDL definidos en `Adogtame_modulo_usuarios.md` (v0.7), donde se documentan el análisis y las decisiones (DEC-01 a DEC-15) que los justifican.
 >
 > **Versión sin módulo de patrocinio.** Este documento excluye el patrocinio de perros, que queda descartado hasta nuevo aviso junto con el seguimiento post-adopción (ver [5.2](#52-módulos-diferidos-fuera-del-alcance-actual)).
+>
+> **Cambios de la v2.** _[v2]_ Se reemplaza el control de acceso basado en roles (RBAC) almacenado en la base de datos por un esquema de **perfil + verificación + estado**, con la matriz de permisos definida como especificación (DEC-01 revisada). Los roles Visitante, Persona, Rescatista, Refugio y Administrador se mantienen como concepto funcional. El análisis del cambio está en `revision-roles-sin-rbac.md`. Los puntos modificados se marcan con _[v2]_. Los casos de uso usan la numeración jerárquica de `Adogtame_CU.drawio` (CU-1.1 a CU-6.3.2), con su equivalencia en 3.3.
 
 ---
 
@@ -209,7 +211,7 @@ Adogtame no pretende resolver el problema estructural del abandono (que depende 
 |---|---|---|---|
 | FR-01 | Registro para usuarios generales | Registro de persona independiente que puede adoptar y poner en adopción. Campos validados. _[Actualizado]_ El sistema envía un correo de confirmación al registrarse (también en FR-02); es el único correo que envía la plataforma. | CR-02 |
 | FR-02 | Registro especial para refugios _[Actualizado]_ | Registro de institución con datos adicionales (ubicación, página web). Al registrarse se crea una solicitud de verificación que revisa un administrador. Mientras está pendiente, el refugio puede poner perros en adopción, sin distintivo y sin aparecer en el directorio de refugios. Si la verificación se rechaza o, una vez aprobada, se revoca, la cuenta se convierte automáticamente en persona: el nombre de la institución pasa a ser su nombre, se descartan ubicación y página web, se conservan sus perros publicados y no puede volver a solicitar verificación como refugio. Un refugio no adopta ni guarda favoritos. Campos validados. | CR-02 |
-| FR-03 | Solicitud para rescatista _[Actualizado]_ | Una persona sin verificación vigente ni solicitud pendiente solicita desde su perfil ser verificada como rescatista. Un administrador la aprueba o la rechaza con una observación. Al aprobarse, la cuenta obtiene el rol de rescatista: su perfil muestra el distintivo y aparece en el directorio de rescatistas. Un administrador puede revocar la verificación indicando el motivo; la cuenta pierde el rol, el distintivo y su lugar en el directorio. El solicitante recibe una notificación con cada resultado. | CR-02 |
+| FR-03 | Solicitud para rescatista _[Actualizado, v2]_ | Una persona sin verificación vigente ni solicitud pendiente solicita desde su perfil ser verificada como rescatista. Un administrador la aprueba o la rechaza con una observación. Al aprobarse, la cuenta pasa a ser **rescatista**: su perfil muestra el distintivo y aparece en el directorio de rescatistas. Un administrador puede revocar la verificación indicando el motivo; la cuenta deja de ser rescatista y pierde el distintivo y su lugar en el directorio. _[v2]_ La condición de rescatista se deriva de tener una verificación de rescatista aprobada; no se asigna como un rol aparte. El solicitante recibe una notificación con cada resultado. | CR-02 |
 | FR-04 | Administrar panel de usuario _[Actualizado]_ | Actualizar información (foto, número, etc.) y ver perros en adopción, favoritos, notificaciones y estado de la solicitud de verificación según los permisos de la cuenta. | — |
 | FR-05 | Agregar un perro en adopción _[Actualizado]_ | Persona, rescatista o refugio (incluido el refugio con verificación pendiente) publica un perro. **Obligatorios:** nombre, foto principal, raza (catálogo, solo valores activos), fecha de nacimiento (obligatoria: si la edad se desconoce, el publicador ingresa una fecha coherente con su estimación), edad (calculada), tamaño (grande/mediano/pequeño), peso (kg), pelaje (corto/mediano/largo), color (catálogo, solo valores activos), género, ubicación, vacunas al día, esterilizado. **Opcionales:** fotos adicionales, necesidades especiales, descripción. Campos validados. | CR-01 |
 | FR-06 | Editar información del perro _[Actualizado]_ | Solo el publicador del perro, sea persona, rescatista o refugio, edita sus datos. El administrador no edita perros ajenos. Un perro no visible no admite edición (FR-13). | — |
@@ -218,11 +220,11 @@ Adogtame no pretende resolver el problema estructural del abandono (que depende 
 | FR-09 | Búsqueda y filtros | Filtros por raza, edad, tamaño, género, pelaje, color, fecha de publicación, esterilizado y nombre. | CR-01 |
 | FR-10 | Visualizar información de perros | Perfil del perro con datos relevantes, publicador y opción de favorito. | CR-01 |
 | FR-11 | Visualizar perfiles de usuarios _[Actualizado]_ | Perfil público con nombre, foto, descripción e indicador de rescatista o refugio verificado. El teléfono y el correo solo se muestran a usuarios con sesión iniciada; el visitante ve el resto del perfil. No se muestran perfiles de cuentas suspendidas o desactivadas. Los directorios de rescatistas y refugios incluyen solo cuentas activas con verificación vigente. | CR-02 |
-| FR-12 | Eliminar perro _[Nuevo]_ | El publicador del perro o un administrador puede eliminarlo, previa confirmación; el administrador también puede eliminar, desde el panel de administración, los perros ocultos por la suspensión o desactivación de su publicador. La eliminación es siempre **lógica** para cualquier rol, incluido el administrador: el registro se conserva marcado como eliminado; no existe borrado físico ni restauración. Las imágenes asociadas **no** se eliminan del proveedor de almacenamiento de objetos. Al eliminarse, las solicitudes de adopción pendientes se cancelan. | — |
+| FR-12 | Eliminar perro _[Nuevo]_ | El publicador del perro o un administrador puede eliminarlo, previa confirmación; el administrador también puede eliminar, desde el panel de administración, los perros ocultos por la suspensión o desactivación de su publicador. La eliminación es siempre **lógica** para cualquier perfil, incluido el administrador: el registro se conserva marcado como eliminado; no existe borrado físico ni restauración. Las imágenes asociadas **no** se eliminan del proveedor de almacenamiento de objetos. Al eliminarse, las solicitudes de adopción pendientes se cancelan. | — |
 | FR-13 | Visibilidad de perros _[Nuevo, actualizado]_ | Un perro es visible si no está eliminado y su publicador tiene la cuenta activa. Un perro no visible no aparece en listados, búsquedas, perfiles de usuario, *Mis perros* ni *Favoritos*; el acceso directo a su perfil responde con **404**, igual que un perro inexistente (NFR-07), y no admite edición, nuevas solicitudes de adopción ni ser marcado como favorito. Los perros ocultos por suspensión o desactivación de su publicador vuelven a mostrarse si la cuenta se reactiva. Los eliminados solo los consulta un administrador, en modo de solo lectura, desde el panel de administración. | — |
-| FR-14 | Gestión de solicitudes de verificación _[Nuevo]_ | El administrador consulta las solicitudes de verificación pendientes, las aprueba o las rechaza con observación, y revoca verificaciones vigentes indicando el motivo. Aprobar a un rescatista le asigna el rol; rechazar o revocar a un refugio lo convierte en persona (FR-02). | CR-02 |
-| FR-15 | Gestión de estado de cuentas _[Nuevo]_ | El administrador busca cuentas por correo o nombre, las filtra por rol, estado y verificación, y consulta su detalle sin ver nunca la contraseña. Puede suspender y reactivar cuentas, excepto la propia y la del último administrador activo. Un usuario puede desactivar su propia cuenta; solo un administrador puede reactivarla. Una cuenta no activa no puede iniciar sesión y sus perros dejan de ser visibles (FR-13). | CR-02 |
-| FR-16 | Gestión de administradores _[Nuevo]_ | Las cuentas de administrador no se crean por registro público: las crea otro administrador o el despliegue inicial, con un correo propio. Un administrador puede retirar el rol a otro, lo que también desactiva esa cuenta; nunca puede quedar el sistema sin administradores activos. | — |
+| FR-14 | Gestión de solicitudes de verificación _[Nuevo, v2]_ | El administrador consulta las solicitudes de verificación pendientes, las aprueba o las rechaza con observación, y revoca verificaciones vigentes indicando el motivo. Aprobar a un rescatista lo convierte en rescatista verificado; rechazar o revocar a un refugio lo convierte en persona (FR-02). | CR-02 |
+| FR-15 | Gestión de estado de cuentas _[Nuevo, v2]_ | El administrador busca cuentas por correo o nombre, las filtra por tipo de cuenta (persona, rescatista, refugio, administrador), estado y verificación, y consulta su detalle sin ver nunca la contraseña. Puede suspender y reactivar cuentas, excepto la propia y la del último administrador activo. Un usuario puede desactivar su propia cuenta; solo un administrador puede reactivarla. Una cuenta no activa no puede iniciar sesión y sus perros dejan de ser visibles (FR-13). | CR-02 |
+| FR-16 | Gestión de administradores _[Nuevo, v2]_ | Las cuentas de administrador no se crean por registro público: las crea otro administrador o el despliegue inicial, con un correo propio. Un administrador puede retirar a otro administrador, lo que desactiva su cuenta; nunca puede quedar el sistema sin administradores activos. _[v2]_ El perfil de la cuenta no cambia: reactivar una cuenta de administrador (CU-6.2.3) le devuelve el acceso administrativo, como a cualquier otra cuenta reactivada. | — |
 | FR-17 | Gestión de catálogos _[Nuevo]_ | El administrador agrega, renombra, activa y desactiva valores de los catálogos de raza y color, y elimina los que no estén en uso. Los valores inactivos no se ofrecen al publicar ni editar perros; los perros que ya los usan los conservan. | FR-05 |
 
 ### 2.3 Requisitos no funcionales (NF)
@@ -237,7 +239,7 @@ Adogtame no pretende resolver el problema estructural del abandono (que depende 
 | NFR-06 | Mantenibilidad _[Nuevo]_ | El acceso al almacenamiento de imágenes se realiza mediante una capa de abstracción, de modo que el proveedor (Cloudinary en la implementación original) pueda sustituirse sin modificar la lógica de negocio. La base de datos guarda solo la URL o identificador de cada imagen. |
 | NFR-07 | Seguridad y privacidad _[Nuevo, actualizado]_ | La respuesta ante un perro no visible (eliminado u oculto por la suspensión o desactivación de su publicador) debe ser indistinguible de la de un perro inexistente (mismo código 404 y mismo contenido), para no revelar que el registro existe. |
 | NFR-08 | Eficiencia _[Nuevo, actualizado]_ | Excluir los perros no visibles, lo que implica cruzar `perro` con el estado de la cuenta de su publicador, no debe degradar las consultas de listado y búsqueda por encima del límite de NFR-01. |
-| NFR-09 | Seguridad _[Nuevo]_ | Toda acción se autoriza en el servidor por permiso y, cuando aplica, por propiedad del recurso. La interfaz solo oculta opciones; no es el mecanismo de autorización. |
+| NFR-09 | Seguridad _[Nuevo, v2]_ | Toda acción se autoriza en el servidor por permiso y, cuando aplica, por propiedad del recurso. Los permisos de una cuenta se derivan de su perfil, su verificación vigente y su estado, según la matriz de permisos (6.4), que se define en un único punto del sistema. La interfaz solo oculta opciones; no es el mecanismo de autorización. |
 | NFR-10 | Disponibilidad _[Nuevo]_ | El sistema debe estar disponible al menos el **99 %** del tiempo en cada mes calendario, excluyendo mantenimientos programados que se avisan con antelación. Si el servicio no está disponible, la interfaz muestra un mensaje de error comprensible en lugar de una página en blanco. |
 | NFR-11 | Protección de datos personales _[Nuevo]_ | Toda comunicación entre el navegador y el servidor usa **HTTPS**. Solo se solicitan los datos personales necesarios para las funciones definidas (minimización). Los registros técnicos (logs) no contienen contraseñas, hashes, tokens de sesión ni teléfonos o correos completos. Complementa NFR-02, NFR-07 y FR-11. Su alineación con la Ley Orgánica de Protección de Datos Personales de Ecuador debe revisarse antes de publicar el sistema. |
 | NFR-12 | Compatibilidad de pantalla _[Nuevo]_ | La interfaz se diseña para monitores de escritorio y portátiles de **14 a 24 pulgadas**. Como referencia, el mínimo es una ventana de **1280 px** de ancho (portátil de 14″, p. ej. 1366×768, o 1920×1080 con escala del 150 %) y el máximo, una de **1920 px** (monitor de 24″, 1920×1080 o 1920×1200). Entre ambos límites no hay desbordamiento horizontal, texto cortado ni controles superpuestos, y el número de columnas de tarjetas se ajusta al ancho. Por encima de 1920 px el contenido se centra con un ancho máximo. No se garantizan pantallas menores (tabletas, móviles; ver 1.2 y NFR-04). |
@@ -263,9 +265,11 @@ Adogtame no pretende resolver el problema estructural del abandono (que depende 
 
 ### 3.1 Diagramas
 
-El informe tenía dos diagramas: uno para **Usuario/Rescatista** y otro para **Perrera (Refugio)**. Se retiró el caso de uso «Solicitar patrocinio» y los casos posteriores se renumeraron. _[Nuevo]_ Se añadió CU-14 «Eliminar perro». _[Actualizado]_ Con el módulo de usuarios se incorporan el actor **Visitante**, los casos del **Administrador** (CU-15 a CU-24) CU-25 «Solicitar verificación como rescatista», CU-26 «Desactivar cuenta propia» y CU-27 «Ver perfiles públicos y directorios»; «Usuario general» pasa a llamarse **Persona**, como su rol. Las relaciones entre casos de uso indican explícitamente `<<extend>>` (Obs. 3).
+El informe tenía dos diagramas: uno para **Usuario/Rescatista** y otro para **Perrera (Refugio)**. Se retiró el caso de uso «Solicitar patrocinio». _[Nuevo]_ Se añadió «Eliminar perro». _[Actualizado]_ Con el módulo de usuarios se incorporan el actor **Visitante**, los casos del **Administrador**, «Solicitar verificación como rescatista», «Desactivar cuenta propia» y «Ver perfiles públicos y directorios»; «Usuario general» pasa a llamarse **Persona**. Las relaciones entre casos de uso indican explícitamente `<<extend>>` (Obs. 3).
 
-**Diagrama general.** Los casos del administrador se muestran por sus puntos de entrada; sus extensiones están en el diagrama siguiente.
+_[v2]_ **Numeración jerárquica.** Los casos de uso se agrupan en paquetes y se numeran según su nivel de anidamiento: el nivel 1 usa números directos (1, 2, 3…), el nivel 2 agrega un dígito (1.1, 1.2…) y el nivel 3 otro (6.1.1, 6.1.2…). Los diagramas completos están en `Adogtame_CU.drawio`, con una pestaña por diagrama y una pestaña *Equivalencias* con la numeración anterior (CU-1.1 a CU-2.4).
+
+**Nivel 1 — Diagrama general.**
 
 ```mermaid
 flowchart LR
@@ -276,116 +280,107 @@ flowchart LR
     A([Administrador])
 
     subgraph SYS [ADOGTAME]
-        CU01[CU-01 Registrarse]
-        CU02[CU-02 Iniciar sesión]
-        CU03[CU-03 Ver perros en adopción]
-        CU04[CU-04 Buscar y filtrar perros]
-        CU05[CU-05 Ver información de perro]
-        CU06[CU-06 Agregar perro a favoritos]
-        CU07[CU-07 Poner perro en adopción]
-        CU08[CU-08 Editar información de perro]
-        CU09[CU-09 Solicitar adopción]
-        CU10[CU-10 Confirmar adopción]
-        CU11[CU-11 Recibir notificación de solicitud]
-        CU12[CU-12 Revisar perfil]
-        CU13[CU-13 Revisar notificaciones]
-        CU14[CU-14 Eliminar perro]
-        CU25[CU-25 Solicitar verificación como rescatista]
-        CU26[CU-26 Desactivar cuenta propia]
-        CU27[CU-27 Ver perfiles públicos y directorios]
-        CU15[CU-15 Revisar solicitudes de verificación]
-        CU18[CU-18 Consultar cuentas de usuario]
-        CU21[CU-21 Crear administrador]
-        CU23[CU-23 Gestionar catálogos]
-        CU24[CU-24 Consultar perros eliminados]
+        M1[1. Cuentas y acceso]
+        M2[2. Exploración de perros y perfiles]
+        M3[3. Gestión de perros]
+        M4[4. Adopción y favoritos]
+        M5[5. Perfil y panel de usuario]
+        M6[6. Administración]
     end
 
     R -. «especializa» .-> P
-
-    V --- CU01 & CU02 & CU03 & CU04 & CU27
-    P --- CU03 & CU04 & CU06 & CU07 & CU08 & CU09 & CU10 & CU11 & CU12 & CU14 & CU25 & CU27
-    F --- CU03 & CU04 & CU07 & CU08 & CU10 & CU11 & CU12 & CU14 & CU27
-    A --- CU03 & CU04 & CU12 & CU14 & CU15 & CU18 & CU21 & CU23 & CU24 & CU27
-
-    CU05 -. «extend» .-> CU03
-    CU05 -. «extend» .-> CU04
-    CU06 -. «extend» .-> CU05
-    CU09 -. «extend» .-> CU05
-    CU13 -. «extend» .-> CU12
-    CU25 -. «extend» .-> CU12
-    CU26 -. «extend» .-> CU12
-    CU27 -. «extend» .-> CU05
+    V --- M1 & M2
+    P --- M2 & M3 & M4 & M5
+    F --- M2 & M3 & M4 & M5
+    A --- M2 & M3 & M5 & M6
 ```
 
-> - **Visitante** representa a cualquier usuario sin sesión, incluido un administrador antes de iniciarla. Al registrarse pasa a ser Persona o Refugio; las cuentas de administrador solo se crean con CU-21.
-> - **Rescatista** especializa a Persona y no tiene asociaciones propias: hereda todas las de Persona salvo CU-25, que deja de estar disponible una vez verificado.
-> - CU-06 y CU-09 extienden el perfil del perro (CU-05) y además se asocian directamente a Persona para indicar que solo ella puede ejecutarlos.
-> - CU-13 extiende a CU-12 para Persona, Rescatista y Refugio; el administrador no recibe notificaciones (DEC-12).
+> - **Visitante** representa a cualquier usuario sin sesión, incluido un administrador antes de iniciarla. Al registrarse pasa a ser Persona o Refugio; las cuentas de administrador solo se crean con CU-6.2.4.
+> - **Rescatista** especializa a Persona y hereda todas sus asociaciones, salvo CU-5.3, que deja de estar disponible una vez verificado.
+> - **Refugio** no adopta ni guarda favoritos: en el paquete 4 solo confirma adopciones de sus perros y recibe sus notificaciones.
+> - El administrador no recibe notificaciones (DEC-12) ni accede a solicitudes de adopción.
 
-**Diagrama del administrador.**
+**Niveles 2 y 3 — Paquetes y casos de uso.**
 
-```mermaid
-flowchart LR
-    A([Administrador])
+| Paquete | Nivel | Casos de uso | Actores | Relaciones `<<extend>>` |
+|---|---|---|---|---|
+| **1. Cuentas y acceso** | 2 | 1.1 Registrarse · 1.2 Iniciar sesión | Visitante | — |
+| **2. Exploración de perros y perfiles** | 2 | 2.1 Ver perros en adopción · 2.2 Buscar y filtrar perros · 2.3 Ver información de perro · 2.4 Ver perfiles públicos y directorios | Visitante, Persona, Rescatista, Refugio, Administrador | 2.3 → 2.1 y 2.2 · 2.4 → 2.3 |
+| **3. Gestión de perros** | 2 | 3.1 Poner perro en adopción · 3.2 Editar información de perro · 3.3 Eliminar perro | Persona, Rescatista, Refugio (3.1–3.3); Administrador (3.3) | — |
+| **4. Adopción y favoritos** | 2 | 4.1 Agregar perro a favoritos · 4.2 Solicitar adopción · 4.3 Confirmar adopción · 4.4 Recibir notificación de solicitud | Persona, Rescatista (4.1–4.4); Refugio (4.3, 4.4) | 4.1 → 2.3 · 4.2 → 2.3 |
+| **5. Perfil y panel de usuario** | 2 | 5.1 Revisar perfil · 5.2 Revisar notificaciones · 5.3 Solicitar verificación como rescatista · 5.4 Desactivar cuenta propia | Persona, Rescatista, Refugio, Administrador | 5.2 → 5.1 · 5.3 → 5.1 · 5.4 → 5.1 |
+| **6. Administración** | 2 | Subpaquetes 6.1, 6.2 y 6.3 | Administrador | — |
+| ↳ **6.1 Verificaciones** | 3 | 6.1.1 Revisar solicitudes de verificación · 6.1.2 Resolver solicitud de verificación · 6.1.3 Revocar verificación | Administrador | 6.1.2 → 6.1.1 · 6.1.3 → 6.2.1 |
+| ↳ **6.2 Cuentas y administradores** | 3 | 6.2.1 Consultar cuentas de usuario · 6.2.2 Suspender cuenta · 6.2.3 Reactivar cuenta · 6.2.4 Crear administrador · 6.2.5 Retirar administrador | Administrador | 6.2.2, 6.2.3 y 6.2.5 → 6.2.1 |
+| ↳ **6.3 Contenido y catálogos** | 3 | 6.3.1 Consultar perros eliminados · 6.3.2 Gestionar catálogos | Administrador (además usa 3.3) | — |
 
-    subgraph ADM [ADOGTAME — Administración]
-        CU14[CU-14 Eliminar perro]
-        CU15[CU-15 Revisar solicitudes de verificación]
-        CU16[CU-16 Resolver solicitud de verificación]
-        CU17[CU-17 Revocar verificación]
-        CU18[CU-18 Consultar cuentas de usuario]
-        CU19[CU-19 Suspender cuenta]
-        CU20[CU-20 Reactivar cuenta]
-        CU21[CU-21 Crear administrador]
-        CU22[CU-22 Retirar rol de administrador]
-        CU23[CU-23 Gestionar catálogos]
-        CU24[CU-24 Consultar perros eliminados]
-    end
-
-    A --- CU14 & CU15 & CU18 & CU21 & CU23 & CU24
-
-    CU16 -. «extend» .-> CU15
-    CU17 -. «extend» .-> CU18
-    CU19 -. «extend» .-> CU18
-    CU20 -. «extend» .-> CU18
-    CU22 -. «extend» .-> CU18
-```
-
-> CU-16, CU-17, CU-19, CU-20 y CU-22 se inician desde el detalle de una solicitud o de una cuenta, por eso extienden a CU-15 y CU-18 en lugar de conectarse directamente al actor.
+> Los casos que se inician desde el detalle de una solicitud o de una cuenta (6.1.2, 6.1.3, 6.2.2, 6.2.3, 6.2.5) extienden a 6.1.1 y 6.2.1 en lugar de conectarse directamente al actor.
 
 ### 3.2 Especificación de casos de uso
 
-CU-01 a CU-13 provienen del informe; los marcados como _[Actualizado]_ ajustan actores y flujos alternativos según el modelo de roles. Los códigos de acción (CTA-, VER-, PER-, ADM-) y de decisión (DEC-) remiten a `Adogtame_modulo_usuarios.md`, donde está su justificación.
+Los casos de los paquetes 1 a 5, salvo 2.4, 3.3, 5.3 y 5.4, provienen del informe; los marcados como _[Actualizado]_ ajustan actores y flujos alternativos según el modelo de roles. Los códigos de acción (CTA-, VER-, PER-, ADM-) y de decisión (DEC-) remiten a `Adogtame_modulo_usuarios.md`, donde está su justificación.
 
 | ID | Nombre | Actor(es) principal(es) | Descripción | Flujo principal | Flujos alternativos | FR |
 |---|---|---|---|---|---|---|
-| CU-01 | Registrarse _[Actualizado]_ | Visitante | Crear cuenta según el tipo de usuario. | 1. Selecciona tipo de cuenta (persona o refugio). 2. Completa formulario. 3. El sistema crea la cuenta con su perfil y rol; si es refugio, crea también su solicitud de verificación pendiente. 4. El sistema envía correo de confirmación. | Campos inválidos → el sistema marca los errores. Correo ya registrado → error. | FR-01, FR-02 |
-| CU-02 | Iniciar sesión _[Actualizado]_ | Visitante (cualquier usuario sin sesión, incluido el administrador) | Acceso con credenciales. | 1. Ingresa correo y contraseña. 2. El sistema valida. 3. Acceso al panel. | Credenciales incorrectas → mensaje de error. _[Nuevo]_ Cuenta suspendida o desactivada → mensaje de acceso no disponible, sin iniciar sesión. | FR-15 |
-| CU-03 | Ver perros en adopción _[Actualizado]_ | Visitante, Persona, Rescatista, Refugio, Administrador | Listado de perros disponibles. | 1. Accede a «Perros en adopción». 2. Se cargan tarjetas con información básica de los perros visibles. | Sin conexión → mensaje de error. | FR-10, FR-13 |
-| CU-04 | Buscar y filtrar perros _[Actualizado]_ | Visitante, Persona, Rescatista, Refugio, Administrador | Búsqueda con filtros. | 1. Ingresa a búsqueda. 2. Aplica filtros. 3. Resultados en tiempo real, solo con perros visibles. | Sin resultados → sugerir ajustar filtros. | FR-09, FR-13 |
-| CU-05 | Ver información de perro _[Actualizado]_ | Visitante, Persona, Rescatista, Refugio, Administrador | Perfil detallado del perro. | _Sin especificación en el informe._ | _[Nuevo]_ Perro no visible o inexistente → página 404. Visitante → se muestran los datos del publicador sin teléfono ni correo. | FR-10, FR-11, FR-13 |
-| CU-06 | Agregar perro a favoritos _[Actualizado]_ | Persona, Rescatista | Guardar perfiles para revisar luego. | 1. Selecciona «Añadir a favoritos». 2. El sistema guarda en su lista. | Ya en favoritos → mensaje de duplicado. _[Nuevo]_ Perro no visible → deja de mostrarse en favoritos y no puede marcarse. | FR-08, FR-13 |
-| CU-07 | Poner perro en adopción _[Actualizado]_ | Persona, Rescatista, Refugio (incluido el refugio pendiente de verificación) | Publicar un perro. | 1. Accede al formulario. 2. Ingresa datos (nombre, fotos, historial médico; raza y color de los catálogos activos). 3. El sistema valida y publica. | Datos incompletos → solicitar campos obligatorios. | FR-05 |
-| CU-08 | Editar información de perro _[Actualizado]_ | Persona, Rescatista, Refugio (solo el publicador) | Actualizar datos de un perro. | 1. Accede al perfil del perro. 2. Modifica campos. 3. El sistema actualiza. | Campos inválidos → bloquea guardado. _[Nuevo]_ Perro no visible → página 404. No es el publicador (incluido el administrador) → la opción no está disponible. | FR-06, FR-13 |
-| CU-09 | Solicitar adopción _[Actualizado]_ | Persona, Rescatista | Solicitud formal de adopción. | 1. Selecciona perro. 2. Completa formulario. 3. El sistema notifica al publicador. | Perro ya adoptado → no disponible. _[Nuevo]_ Perro no visible → página 404. Perro propio → la opción no está disponible. | FR-07, FR-13 |
-| CU-10 | Confirmar adopción _[Actualizado]_ | Persona, Rescatista, Refugio (solo el publicador) | Aprobar o rechazar una solicitud de adopción. | 1. Revisa la solicitud. 2. Aprueba o rechaza. 3. El sistema notifica al solicitante. | Rechazo → permite enviar comentarios. | FR-07 |
-| CU-11 | Recibir notificación de solicitud _[Actualizado]_ | Persona, Rescatista, Refugio (solo el publicador) | Aviso de nueva solicitud. | 1. El sistema envía notificación al panel. 2. El destinatario la visualiza. | _[Actualizado]_ No hay recordatorio por correo: queda fuera del alcance (Obs. 17). | FR-07 |
-| CU-12 | Revisar perfil _[Actualizado]_ | Persona, Rescatista, Refugio, Administrador | Acceso al panel de usuario. | _Sin especificación en el informe._ | _[Nuevo]_ Administrador → solo accede a los datos de su cuenta. Persona y refugio ven el estado de su solicitud de verificación. | FR-04 |
-| CU-13 | Revisar notificaciones _[Actualizado]_ | Persona, Rescatista, Refugio | Bandeja de notificaciones. | _Sin especificación en el informe._ | _[Nuevo]_ Incluye avisos de resultado de verificación, conversión a persona y solicitudes canceladas por suspensión o desactivación. El administrador no recibe notificaciones. | FR-03, FR-07 |
-| CU-14 | Eliminar perro _[Nuevo]_ | Persona, Rescatista, Refugio (publicador del perro); Administrador | Retirar un perro de la plataforma mediante borrado lógico. | 1. Accede al perfil del perro o a *Mis perros* (el administrador, a cualquier perro visible o, desde *Perros eliminados* de CU-24, a los perros no eliminados de cuentas suspendidas o desactivadas, que no son visibles). 2. Pulsa «Eliminar». 3. El sistema pide confirmación. 4. Confirma. 5. El sistema marca el perro como eliminado, sin borrar sus imágenes del almacenamiento. 6. Cancela las solicitudes de adopción pendientes. 7. El perro deja de mostrarse en todos los apartados. | Cancela la confirmación → no se realiza ningún cambio. Usuario que no es publicador ni administrador → la opción no está disponible. Perro ya eliminado → página 404. | FR-12, FR-13 |
-| CU-15 _[Nuevo]_ | Revisar solicitudes de verificación | Administrador | Consultar las solicitudes de verificación de rescatistas y refugios (VER-03). | 1. Accede a *Verificaciones* en el panel de administración. 2. El sistema lista las solicitudes pendientes, de la más antigua a la más reciente. 3. Selecciona una solicitud. 4. El sistema muestra los datos de la cuenta y de su perfil (persona: nombre y descripción; refugio: institución, ubicación y página web), su teléfono y correo. | No hay solicitudes → mensaje informativo. | FR-14 |
-| CU-16 _[Nuevo]_ | Resolver solicitud de verificación | Administrador | Aprobar o rechazar una solicitud pendiente (VER-04). | 1. Desde el detalle de la solicitud (CU-15) elige «Aprobar» o «Rechazar». 2. Si rechaza, ingresa la observación. 3. El sistema pide confirmación, indicando las consecuencias según el tipo (ver paso 5). 4. Confirma. 5. El sistema registra el estado, la fecha y el revisor y aplica el efecto: **rescatista aprobado** → asigna el rol RESCATISTA; **refugio aprobado** → muestra el distintivo y lo incluye en el directorio; **rescatista rechazado** → sin otros cambios; **refugio rechazado** → convierte la cuenta en persona (reglas de 6.4). 6. Notifica el resultado al solicitante (DEC-12). | Rechazo sin observación → bloquea la confirmación. Cancela la confirmación → no se realiza ningún cambio. La solicitud ya fue resuelta por otro administrador → mensaje informativo y se recarga el listado. | FR-02, FR-03, FR-14 |
-| CU-17 _[Nuevo]_ | Revocar verificación | Administrador | Retirar la verificación vigente de un rescatista o refugio (VER-05). | 1. Desde el detalle de una cuenta verificada (CU-18) pulsa «Revocar verificación». 2. Ingresa el motivo. 3. El sistema pide confirmación, indicando las consecuencias según el tipo. 4. Confirma. 5. El sistema marca la solicitud aprobada como revocada, con fecha y motivo. 6. **Rescatista** → retira el rol RESCATISTA; **refugio** → convierte la cuenta en persona (reglas de 6.4). 7. Deja de mostrarse el distintivo y la cuenta sale del directorio. 8. Notifica a la cuenta afectada (DEC-12). | Sin motivo → bloquea la confirmación. Cancela la confirmación → no se realiza ningún cambio. La cuenta no tiene verificación vigente → la opción no está disponible. | FR-03, FR-14 |
-| CU-18 _[Nuevo]_ | Consultar cuentas de usuario | Administrador | Buscar cuentas y ver su detalle para moderarlas (ADM-01, ADM-02). | 1. Accede a *Usuarios* en el panel de administración. 2. El sistema lista las cuentas. 3. Busca por correo o nombre y filtra por rol, estado de cuenta o verificación. 4. Selecciona una cuenta. 5. El sistema muestra datos de cuenta y perfil, roles y estado, sin mostrar nunca el hash de la contraseña. 6. Según el estado de la cuenta, ofrece las acciones de CU-17, CU-19, CU-20 o CU-22. | Sin resultados → sugerir ajustar la búsqueda o los filtros. | FR-15 |
-| CU-19 _[Nuevo]_ | Suspender cuenta | Administrador | Bloquear el acceso de una cuenta (ADM-03). | 1. Desde el detalle de una cuenta activa (CU-18) pulsa «Suspender». 2. El sistema pide confirmación, indicando que sus perros dejarán de mostrarse y que se cancelarán sus solicitudes de adopción pendientes. 3. Confirma. 4. El sistema cambia el estado a `suspendida`. 5. Sus perros dejan de ser visibles, sin marcarse como eliminados (DEC-09). 6. Cancela sus solicitudes de adopción pendientes, enviadas y recibidas, y notifica a cada contraparte (DEC-12). 7. Invalida sus sesiones activas. | Es su propia cuenta → la opción no está disponible. Es el último administrador activo → el sistema bloquea la acción. Cancela la confirmación → no se realiza ningún cambio. | FR-15 |
-| CU-20 _[Nuevo]_ | Reactivar cuenta | Administrador | Devolver el acceso a una cuenta suspendida o desactivada (ADM-03, DEC-13). | 1. Desde el detalle de una cuenta suspendida o desactivada (CU-18) pulsa «Reactivar». 2. El sistema pide confirmación. 3. Confirma. 4. El sistema cambia el estado a `activa`. 5. Sus perros vuelven a ser visibles. | Cancela la confirmación → no se realiza ningún cambio. Las solicitudes de adopción canceladas al suspender o desactivar **no** se reabren. | FR-15 |
-| CU-21 _[Nuevo]_ | Crear administrador | Administrador | Dar de alta una nueva cuenta administrativa (ADM-04). | 1. Accede a *Administradores* en el panel. 2. Pulsa «Nuevo administrador». 3. Ingresa correo y contraseña inicial. 4. El sistema valida los campos. 5. En una transacción, crea la cuenta con perfil `administrador`, sin teléfono, y le asigna el rol ADMIN. 6. Envía el correo de confirmación (CTA-04). 7. El administrador creador comunica la contraseña inicial por un medio externo; el nuevo administrador la cambia desde su perfil (CTA-07). | Correo ya registrado, incluso por una cuenta de persona o refugio → error; la cuenta administrativa requiere un correo propio (DEC-03). Campos inválidos → el sistema marca los errores. | FR-16 |
-| CU-22 _[Nuevo]_ | Retirar rol de administrador | Administrador | Quitar el acceso administrativo a otra cuenta (ADM-05). | 1. Desde el detalle de una cuenta administradora (CU-18) pulsa «Retirar rol de administrador». 2. El sistema pide confirmación. 3. Confirma. 4. El sistema retira el rol ADMIN y desactiva la cuenta (reglas de 6.4). | Es su propia cuenta → la opción no está disponible. Es el último administrador activo → el sistema bloquea la acción. Cancela la confirmación → no se realiza ningún cambio. | FR-16 |
-| CU-23 _[Nuevo]_ | Gestionar catálogos | Administrador | Mantener los catálogos de raza y color usados al publicar perros (ADM-06). | 1. Accede a *Catálogos* en el panel. 2. Elige raza o color. 3. El sistema lista los valores con su estado (activo / inactivo) y si están en uso. 4. Agrega un valor, cambia el nombre de uno existente, lo activa o lo desactiva, o elimina uno que no esté en uso. 5. El sistema valida y guarda. 6. Los valores inactivos dejan de ofrecerse al publicar y editar perros; los perros que ya los usan los conservan. | Nombre duplicado → error. El valor está en uso → no se ofrece eliminarlo, solo desactivarlo. Cambiar el nombre de un valor en uso → el sistema advierte que se reflejará en todos los perros que lo usan. | FR-17 |
-| CU-24 _[Nuevo]_ | Consultar perros eliminados | Administrador | Revisar en modo de solo lectura los perros eliminados (PER-06, DEC-15). | 1. Accede a *Perros eliminados* en el panel. 2. El sistema lista los perros con `eliminado = TRUE`, con sus datos básicos y su publicador. _[Actualizado]_ Un filtro permite listar también los perros no eliminados de cuentas no activas, sobre los que el administrador puede aplicar CU-14. 3. Selecciona uno. 4. El sistema muestra su información en modo de solo lectura. | No hay perros eliminados → mensaje informativo. No existen opciones para editar ni restaurar (DEC-07). El acceso desde la parte pública sigue respondiendo 404 (NFR-07). | FR-12, FR-13 |
-| CU-25 _[Nuevo]_ | Solicitar verificación como rescatista | Persona | Pedir ser verificada como rescatista (VER-01). | 1. Desde su perfil (CU-12) pulsa «Solicitar verificación como rescatista». 2. El sistema explica lo que implica la verificación: distintivo visible y aparición en el directorio de rescatistas. 3. Confirma. 4. El sistema crea la solicitud en estado pendiente. 5. Su perfil muestra el estado de la solicitud (VER-02) hasta que un administrador la resuelva (CU-16). | Ya tiene una solicitud pendiente → la opción no está disponible y se muestra su estado. Ya es rescatista → la opción no está disponible. Su solicitud anterior fue rechazada o su verificación revocada → puede volver a solicitarla; el perfil muestra la última observación o motivo. Cancela la confirmación → no se realiza ningún cambio. | FR-03 |
-| CU-26 _[Nuevo]_ | Desactivar cuenta propia | Persona, Rescatista, Refugio, Administrador | Retirarse de la plataforma; solo un administrador puede reactivar la cuenta (DEC-13). | 1. Desde su perfil (CU-12) pulsa «Desactivar mi cuenta». 2. El sistema pide confirmación, indicando que sus perros dejarán de mostrarse, que se cancelarán sus solicitudes de adopción pendientes y que solo un administrador puede reactivarla. 3. Confirma. 4. El sistema cambia el estado a `desactivada`. 5. Sus perros dejan de ser visibles, sin marcarse como eliminados. 6. Cancela sus solicitudes de adopción pendientes, enviadas y recibidas, y notifica a cada contraparte. 7. Invalida sus sesiones activas. | Cancela la confirmación → no se realiza ningún cambio. Es el último administrador activo → el sistema bloquea la acción. | FR-15 |
-| CU-27 _[Nuevo]_ | Ver perfiles públicos y directorios | Visitante, Persona, Rescatista, Refugio, Administrador | Consultar el perfil público de un usuario y los directorios de rescatistas y refugios verificados. | 1. Accede a *Rescatistas* o *Refugios*, o al perfil del publicador desde un perro (CU-05). 2. El sistema lista las cuentas activas con verificación vigente (directorios) o muestra el perfil. 3. El perfil muestra nombre, foto, descripción, indicador de verificación y sus perros visibles. 4. Con sesión iniciada, muestra además teléfono y correo. | Cuenta suspendida, desactivada o inexistente → página 404. Visitante → teléfono y correo no se muestran. Sin cuentas verificadas → mensaje informativo. | FR-11 |
+| CU-1.1 | Registrarse _[Actualizado, v2]_ | Visitante | Crear cuenta según el tipo de usuario. | 1. Selecciona tipo de cuenta (persona o refugio). 2. Completa formulario. 3. El sistema crea la cuenta con su perfil; si es refugio, crea también su solicitud de verificación pendiente. 4. El sistema envía correo de confirmación. | Campos inválidos → el sistema marca los errores. Correo ya registrado → error. | FR-01, FR-02 |
+| CU-1.2 | Iniciar sesión _[Actualizado]_ | Visitante (cualquier usuario sin sesión, incluido el administrador) | Acceso con credenciales. | 1. Ingresa correo y contraseña. 2. El sistema valida. 3. Acceso al panel. | Credenciales incorrectas → mensaje de error. _[Nuevo]_ Cuenta suspendida o desactivada → mensaje de acceso no disponible, sin iniciar sesión. | FR-15 |
+| CU-2.1 | Ver perros en adopción _[Actualizado]_ | Visitante, Persona, Rescatista, Refugio, Administrador | Listado de perros disponibles. | 1. Accede a «Perros en adopción». 2. Se cargan tarjetas con información básica de los perros visibles. | Sin conexión → mensaje de error. | FR-10, FR-13 |
+| CU-2.2 | Buscar y filtrar perros _[Actualizado]_ | Visitante, Persona, Rescatista, Refugio, Administrador | Búsqueda con filtros. | 1. Ingresa a búsqueda. 2. Aplica filtros. 3. Resultados en tiempo real, solo con perros visibles. | Sin resultados → sugerir ajustar filtros. | FR-09, FR-13 |
+| CU-2.3 | Ver información de perro _[Actualizado]_ | Visitante, Persona, Rescatista, Refugio, Administrador | Perfil detallado del perro. | _Sin especificación en el informe._ | _[Nuevo]_ Perro no visible o inexistente → página 404. Visitante → se muestran los datos del publicador sin teléfono ni correo. | FR-10, FR-11, FR-13 |
+| CU-2.4 _[Nuevo]_ | Ver perfiles públicos y directorios | Visitante, Persona, Rescatista, Refugio, Administrador | Consultar el perfil público de un usuario y los directorios de rescatistas y refugios verificados. | 1. Accede a *Rescatistas* o *Refugios*, o al perfil del publicador desde un perro (CU-2.3). 2. El sistema lista las cuentas activas con verificación vigente (directorios) o muestra el perfil. 3. El perfil muestra nombre, foto, descripción, indicador de verificación y sus perros visibles. 4. Con sesión iniciada, muestra además teléfono y correo. | Cuenta suspendida, desactivada o inexistente → página 404. Visitante → teléfono y correo no se muestran. Sin cuentas verificadas → mensaje informativo. | FR-11 |
+| CU-3.1 | Poner perro en adopción _[Actualizado]_ | Persona, Rescatista, Refugio (incluido el refugio pendiente de verificación) | Publicar un perro. | 1. Accede al formulario. 2. Ingresa datos (nombre, fotos, historial médico; raza y color de los catálogos activos). 3. El sistema valida y publica. | Datos incompletos → solicitar campos obligatorios. | FR-05 |
+| CU-3.2 | Editar información de perro _[Actualizado]_ | Persona, Rescatista, Refugio (solo el publicador) | Actualizar datos de un perro. | 1. Accede al perfil del perro. 2. Modifica campos. 3. El sistema actualiza. | Campos inválidos → bloquea guardado. _[Nuevo]_ Perro no visible → página 404. No es el publicador (incluido el administrador) → la opción no está disponible. | FR-06, FR-13 |
+| CU-3.3 | Eliminar perro _[Nuevo]_ | Persona, Rescatista, Refugio (publicador del perro); Administrador | Retirar un perro de la plataforma mediante borrado lógico. | 1. Accede al perfil del perro o a *Mis perros* (el administrador, a cualquier perro visible o, desde *Perros eliminados* de CU-6.3.1, a los perros no eliminados de cuentas suspendidas o desactivadas, que no son visibles). 2. Pulsa «Eliminar». 3. El sistema pide confirmación. 4. Confirma. 5. El sistema marca el perro como eliminado, sin borrar sus imágenes del almacenamiento. 6. Cancela las solicitudes de adopción pendientes. 7. El perro deja de mostrarse en todos los apartados. | Cancela la confirmación → no se realiza ningún cambio. Usuario que no es publicador ni administrador → la opción no está disponible. Perro ya eliminado → página 404. | FR-12, FR-13 |
+| CU-4.1 | Agregar perro a favoritos _[Actualizado]_ | Persona, Rescatista | Guardar perfiles para revisar luego. | 1. Selecciona «Añadir a favoritos». 2. El sistema guarda en su lista. | Ya en favoritos → mensaje de duplicado. _[Nuevo]_ Perro no visible → deja de mostrarse en favoritos y no puede marcarse. | FR-08, FR-13 |
+| CU-4.2 | Solicitar adopción _[Actualizado]_ | Persona, Rescatista | Solicitud formal de adopción. | 1. Selecciona perro. 2. Completa formulario. 3. El sistema notifica al publicador. | Perro ya adoptado → no disponible. _[Nuevo]_ Perro no visible → página 404. Perro propio → la opción no está disponible. | FR-07, FR-13 |
+| CU-4.3 | Confirmar adopción _[Actualizado]_ | Persona, Rescatista, Refugio (solo el publicador) | Aprobar o rechazar una solicitud de adopción. | 1. Revisa la solicitud. 2. Aprueba o rechaza. 3. El sistema notifica al solicitante. | Rechazo → permite enviar comentarios. | FR-07 |
+| CU-4.4 | Recibir notificación de solicitud _[Actualizado]_ | Persona, Rescatista, Refugio (solo el publicador) | Aviso de nueva solicitud. | 1. El sistema envía notificación al panel. 2. El destinatario la visualiza. | _[Actualizado]_ No hay recordatorio por correo: queda fuera del alcance (Obs. 17). | FR-07 |
+| CU-5.1 | Revisar perfil _[Actualizado]_ | Persona, Rescatista, Refugio, Administrador | Acceso al panel de usuario. | _Sin especificación en el informe._ | _[Nuevo]_ Administrador → solo accede a los datos de su cuenta. Persona y refugio ven el estado de su solicitud de verificación. | FR-04 |
+| CU-5.2 | Revisar notificaciones _[Actualizado]_ | Persona, Rescatista, Refugio | Bandeja de notificaciones. | _Sin especificación en el informe._ | _[Nuevo]_ Incluye avisos de resultado de verificación, conversión a persona y solicitudes canceladas por suspensión o desactivación. El administrador no recibe notificaciones. | FR-03, FR-07 |
+| CU-5.3 _[Nuevo]_ | Solicitar verificación como rescatista | Persona | Pedir ser verificada como rescatista (VER-01). | 1. Desde su perfil (CU-5.1) pulsa «Solicitar verificación como rescatista». 2. El sistema explica lo que implica la verificación: distintivo visible y aparición en el directorio de rescatistas. 3. Confirma. 4. El sistema crea la solicitud en estado pendiente. 5. Su perfil muestra el estado de la solicitud (VER-02) hasta que un administrador la resuelva (CU-6.1.2). | Ya tiene una solicitud pendiente → la opción no está disponible y se muestra su estado. Ya es rescatista → la opción no está disponible. Su solicitud anterior fue rechazada o su verificación revocada → puede volver a solicitarla; el perfil muestra la última observación o motivo. Cancela la confirmación → no se realiza ningún cambio. | FR-03 |
+| CU-5.4 _[Nuevo]_ | Desactivar cuenta propia | Persona, Rescatista, Refugio, Administrador | Retirarse de la plataforma; solo un administrador puede reactivar la cuenta (DEC-13). | 1. Desde su perfil (CU-5.1) pulsa «Desactivar mi cuenta». 2. El sistema pide confirmación, indicando que sus perros dejarán de mostrarse, que se cancelarán sus solicitudes de adopción pendientes y que solo un administrador puede reactivarla. 3. Confirma. 4. El sistema cambia el estado a `desactivada`. 5. Sus perros dejan de ser visibles, sin marcarse como eliminados. 6. Cancela sus solicitudes de adopción pendientes, enviadas y recibidas, y notifica a cada contraparte. 7. Invalida sus sesiones activas. | Cancela la confirmación → no se realiza ningún cambio. Es el último administrador activo → el sistema bloquea la acción. | FR-15 |
+| CU-6.1.1 _[Nuevo]_ | Revisar solicitudes de verificación | Administrador | Consultar las solicitudes de verificación de rescatistas y refugios (VER-03). | 1. Accede a *Verificaciones* en el panel de administración. 2. El sistema lista las solicitudes pendientes, de la más antigua a la más reciente. 3. Selecciona una solicitud. 4. El sistema muestra los datos de la cuenta y de su perfil (persona: nombre y descripción; refugio: institución, ubicación y página web), su teléfono y correo. | No hay solicitudes → mensaje informativo. | FR-14 |
+| CU-6.1.2 _[Nuevo, v2]_ | Resolver solicitud de verificación | Administrador | Aprobar o rechazar una solicitud pendiente (VER-04). | 1. Desde el detalle de la solicitud (CU-6.1.1) elige «Aprobar» o «Rechazar». 2. Si rechaza, ingresa la observación. 3. El sistema pide confirmación, indicando las consecuencias según el tipo (ver paso 5). 4. Confirma. 5. El sistema registra el estado, la fecha y el revisor y aplica el efecto: **rescatista aprobado** → la cuenta pasa a ser rescatista, con distintivo y presencia en el directorio; **refugio aprobado** → muestra el distintivo y lo incluye en el directorio; **rescatista rechazado** → sin otros cambios; **refugio rechazado** → convierte la cuenta en persona (reglas de 6.4). 6. Notifica el resultado al solicitante (DEC-12). | Rechazo sin observación → bloquea la confirmación. Cancela la confirmación → no se realiza ningún cambio. La solicitud ya fue resuelta por otro administrador → mensaje informativo y se recarga el listado. | FR-02, FR-03, FR-14 |
+| CU-6.1.3 _[Nuevo, v2]_ | Revocar verificación | Administrador | Retirar la verificación vigente de un rescatista o refugio (VER-05). | 1. Desde el detalle de una cuenta verificada (CU-6.2.1) pulsa «Revocar verificación». 2. Ingresa el motivo. 3. El sistema pide confirmación, indicando las consecuencias según el tipo. 4. Confirma. 5. El sistema marca la solicitud aprobada como revocada, con fecha y motivo. 6. **Rescatista** → la cuenta deja de ser rescatista y vuelve a ser persona sin verificación; **refugio** → convierte la cuenta en persona (reglas de 6.4). 7. Deja de mostrarse el distintivo y la cuenta sale del directorio. 8. Notifica a la cuenta afectada (DEC-12). | Sin motivo → bloquea la confirmación. Cancela la confirmación → no se realiza ningún cambio. La cuenta no tiene verificación vigente → la opción no está disponible. | FR-03, FR-14 |
+| CU-6.2.1 _[Nuevo, v2]_ | Consultar cuentas de usuario | Administrador | Buscar cuentas y ver su detalle para moderarlas (ADM-01, ADM-02). | 1. Accede a *Usuarios* en el panel de administración. 2. El sistema lista las cuentas. 3. Busca por correo o nombre y filtra por tipo de cuenta (persona, rescatista, refugio, administrador), estado de cuenta o verificación. 4. Selecciona una cuenta. 5. El sistema muestra datos de cuenta y perfil, tipo de cuenta, verificación vigente y estado, sin mostrar nunca el hash de la contraseña. 6. Según el tipo y el estado de la cuenta, ofrece las acciones de CU-6.1.3, CU-6.2.2, CU-6.2.3 o CU-6.2.5. | Sin resultados → sugerir ajustar la búsqueda o los filtros. | FR-15 |
+| CU-6.2.2 _[Nuevo]_ | Suspender cuenta | Administrador | Bloquear el acceso de una cuenta (ADM-03). | 1. Desde el detalle de una cuenta activa (CU-6.2.1) pulsa «Suspender». 2. El sistema pide confirmación, indicando que sus perros dejarán de mostrarse y que se cancelarán sus solicitudes de adopción pendientes. 3. Confirma. 4. El sistema cambia el estado a `suspendida`. 5. Sus perros dejan de ser visibles, sin marcarse como eliminados (DEC-09). 6. Cancela sus solicitudes de adopción pendientes, enviadas y recibidas, y notifica a cada contraparte (DEC-12). 7. Invalida sus sesiones activas. | Es su propia cuenta → la opción no está disponible. Es el último administrador activo → el sistema bloquea la acción. Cancela la confirmación → no se realiza ningún cambio. | FR-15 |
+| CU-6.2.3 _[Nuevo, v2]_ | Reactivar cuenta | Administrador | Devolver el acceso a una cuenta suspendida o desactivada (ADM-03, DEC-13). _[v2]_ La cuenta conserva su perfil; una cuenta de administrador recupera el acceso administrativo. | 1. Desde el detalle de una cuenta suspendida o desactivada (CU-6.2.1) pulsa «Reactivar». 2. El sistema pide confirmación. 3. Confirma. 4. El sistema cambia el estado a `activa`. 5. Sus perros vuelven a ser visibles. | Cancela la confirmación → no se realiza ningún cambio. Las solicitudes de adopción canceladas al suspender o desactivar **no** se reabren. | FR-15, FR-16 |
+| CU-6.2.4 _[Nuevo, v2]_ | Crear administrador | Administrador | Dar de alta una nueva cuenta administrativa (ADM-04). | 1. Accede a *Administradores* en el panel. 2. Pulsa «Nuevo administrador». 3. Ingresa correo y contraseña inicial. 4. El sistema valida los campos. 5. Crea la cuenta con perfil `administrador`, sin teléfono. 6. Envía el correo de confirmación (CTA-04). 7. El administrador creador comunica la contraseña inicial por un medio externo; el nuevo administrador la cambia desde su perfil (CTA-07). | Correo ya registrado, incluso por una cuenta de persona o refugio → error; la cuenta administrativa requiere un correo propio (DEC-03). Campos inválidos → el sistema marca los errores. | FR-16 |
+| CU-6.2.5 _[Nuevo, v2]_ | Retirar administrador | Administrador | Quitar el acceso administrativo a otra cuenta (ADM-05). | 1. Desde el detalle de una cuenta de administrador activa (CU-6.2.1) pulsa «Retirar administrador». 2. El sistema pide confirmación. 3. Confirma. 4. El sistema desactiva la cuenta (reglas de 6.4). | Es su propia cuenta → la opción no está disponible. Es el último administrador activo → el sistema bloquea la acción. Cancela la confirmación → no se realiza ningún cambio. | FR-16 |
+| CU-6.3.1 _[Nuevo]_ | Consultar perros eliminados | Administrador | Revisar en modo de solo lectura los perros eliminados (PER-06, DEC-15). | 1. Accede a *Perros eliminados* en el panel. 2. El sistema lista los perros con `eliminado = TRUE`, con sus datos básicos y su publicador. _[Actualizado]_ Un filtro permite listar también los perros no eliminados de cuentas no activas, sobre los que el administrador puede aplicar CU-3.3. 3. Selecciona uno. 4. El sistema muestra su información en modo de solo lectura. | No hay perros eliminados → mensaje informativo. No existen opciones para editar ni restaurar (DEC-07). El acceso desde la parte pública sigue respondiendo 404 (NFR-07). | FR-12, FR-13 |
+| CU-6.3.2 _[Nuevo]_ | Gestionar catálogos | Administrador | Mantener los catálogos de raza y color usados al publicar perros (ADM-06). | 1. Accede a *Catálogos* en el panel. 2. Elige raza o color. 3. El sistema lista los valores con su estado (activo / inactivo) y si están en uso. 4. Agrega un valor, cambia el nombre de uno existente, lo activa o lo desactiva, o elimina uno que no esté en uso. 5. El sistema valida y guarda. 6. Los valores inactivos dejan de ofrecerse al publicar y editar perros; los perros que ya los usan los conservan. | Nombre duplicado → error. El valor está en uso → no se ofrece eliminarlo, solo desactivarlo. Cambiar el nombre de un valor en uso → el sistema advierte que se reflejará en todos los perros que lo usan. | FR-17 |
+
+### 3.3 Equivalencia de numeración _[v2]_
+
+| Nueva | Anterior | Caso de uso |
+|---|---|---|
+| CU-1.1 | CU-01 | Registrarse |
+| CU-1.2 | CU-02 | Iniciar sesión |
+| CU-2.1 | CU-03 | Ver perros en adopción |
+| CU-2.2 | CU-04 | Buscar y filtrar perros |
+| CU-2.3 | CU-05 | Ver información de perro |
+| CU-2.4 | CU-27 | Ver perfiles públicos y directorios |
+| CU-3.1 | CU-07 | Poner perro en adopción |
+| CU-3.2 | CU-08 | Editar información de perro |
+| CU-3.3 | CU-14 | Eliminar perro |
+| CU-4.1 | CU-06 | Agregar perro a favoritos |
+| CU-4.2 | CU-09 | Solicitar adopción |
+| CU-4.3 | CU-10 | Confirmar adopción |
+| CU-4.4 | CU-11 | Recibir notificación de solicitud |
+| CU-5.1 | CU-12 | Revisar perfil |
+| CU-5.2 | CU-13 | Revisar notificaciones |
+| CU-5.3 | CU-25 | Solicitar verificación como rescatista |
+| CU-5.4 | CU-26 | Desactivar cuenta propia |
+| CU-6.1.1 | CU-15 | Revisar solicitudes de verificación |
+| CU-6.1.2 | CU-16 | Resolver solicitud de verificación |
+| CU-6.1.3 | CU-17 | Revocar verificación |
+| CU-6.2.1 | CU-18 | Consultar cuentas de usuario |
+| CU-6.2.2 | CU-19 | Suspender cuenta |
+| CU-6.2.3 | CU-20 | Reactivar cuenta |
+| CU-6.2.4 | CU-21 | Crear administrador |
+| CU-6.2.5 | CU-22 | Retirar administrador |
+| CU-6.3.1 | CU-24 | Consultar perros eliminados |
+| CU-6.3.2 | CU-23 | Gestionar catálogos |
 
 ---
 
@@ -393,14 +388,16 @@ CU-01 a CU-13 provienen del informe; los marcados como _[Actualizado]_ ajustan a
 
 ### 4.1 Actores del sistema
 
+_[v2]_ Los actores conservan los mismos roles funcionales. Lo que cambia es cómo se representan en los datos: el **perfil** de la cuenta (persona, refugio o administrador), su **verificación vigente** y su **estado**.
+
 | Actor | Descripción | Razón de haberlo escogido |
 |---|---|---|
-| **Visitante** _[Nuevo]_ | Cualquier usuario sin sesión iniciada. Puede registrarse, iniciar sesión y explorar perros, perfiles y directorios, sin ver el teléfono ni el correo de los usuarios. No es un rol almacenado. | Separar lo público de lo que requiere cuenta da visibilidad permanente a los perros (objetivo 2) sin exponer datos personales. |
-| **Persona** (usuario general) | Persona independiente que puede adoptar, guardar favoritos y poner perros en adopción (p. ej., una familia con una camada inesperada). Rol PERSONA. | Representa tanto a la demanda (adoptantes) como a la oferta informal descrita en la problemática; es el actor base de la plataforma. |
-| **Rescatista** | Persona verificada por un administrador, que recibe el rol RESCATISTA. Hereda todo lo de Persona y además muestra un distintivo de verificación y aparece en el directorio de rescatistas. _[Actualizado]_ Por ahora no tiene permisos exclusivos; el rol queda preparado para módulos futuros. | Surge directamente de la entrevista: los rescatistas independientes carecen de difusión y necesitan un sello de confianza (CR-02). |
-| **Refugio** | Cuenta institucional con datos adicionales (ubicación, página web) y verificación administrativa. Publica perros, pero **no adopta** ni guarda favoritos. _[Actualizado]_ Mientras su verificación está pendiente publica sin distintivo ni aparición en el directorio; si se rechaza o revoca, la cuenta se convierte en persona. Rol REFUGIO. | La problemática identifica a los refugios como saturados y con poca visibilidad; requieren un perfil institucional diferenciado y confiable. |
-| **Administrador** _[Actualizado]_ | Cuenta exclusivamente administrativa y de configuración, con el rol ADMIN. Verifica y revoca a refugios y rescatistas, suspende y reactiva cuentas, gestiona administradores y catálogos, elimina (de forma lógica) cualquier perro y consulta los eliminados. No publica, no adopta, no edita perros ajenos, no accede a solicitudes de adopción ni recibe notificaciones. Solo lo crea otro administrador o el despliegue inicial. | Necesario para cumplir CR-02, FR-02, FR-03, FR-12 y FR-14 a FR-17. El informe no lo modeló. |
-| **Sistema** _(actor secundario)_ | Envía notificaciones en el panel y el correo de confirmación de registro. | Aparece en los flujos de CU-01, CU-10, CU-11, CU-14, CU-16, CU-17 y CU-19. |
+| **Visitante** _[Nuevo]_ | Cualquier usuario sin sesión iniciada. Puede registrarse, iniciar sesión y explorar perros, perfiles y directorios, sin ver el teléfono ni el correo de los usuarios. No se almacena. | Separar lo público de lo que requiere cuenta da visibilidad permanente a los perros (objetivo 2) sin exponer datos personales. |
+| **Persona** (usuario general) _[v2]_ | Persona independiente que puede adoptar, guardar favoritos y poner perros en adopción (p. ej., una familia con una camada inesperada). Cuenta con perfil `persona`. | Representa tanto a la demanda (adoptantes) como a la oferta informal descrita en la problemática; es el actor base de la plataforma. |
+| **Rescatista** _[v2]_ | Persona con una verificación de rescatista aprobada por un administrador. Hereda todo lo de Persona y además muestra un distintivo de verificación y aparece en el directorio de rescatistas. Por ahora no tiene permisos exclusivos; la matriz de permisos reserva su columna para módulos futuros (DEC-05). | Surge directamente de la entrevista: los rescatistas independientes carecen de difusión y necesitan un sello de confianza (CR-02). |
+| **Refugio** _[v2]_ | Cuenta institucional con perfil `refugio`, datos adicionales (ubicación, página web) y verificación administrativa. Publica perros, pero **no adopta** ni guarda favoritos. Mientras su verificación está pendiente publica sin distintivo ni aparición en el directorio; si se rechaza o revoca, la cuenta se convierte en persona. | La problemática identifica a los refugios como saturados y con poca visibilidad; requieren un perfil institucional diferenciado y confiable. |
+| **Administrador** _[v2]_ | Cuenta exclusivamente administrativa y de configuración, con perfil `administrador`. Verifica y revoca a refugios y rescatistas, suspende y reactiva cuentas, gestiona administradores y catálogos, elimina (de forma lógica) cualquier perro y consulta los eliminados. No publica, no adopta, no edita perros ajenos, no accede a solicitudes de adopción ni recibe notificaciones. Solo lo crea otro administrador o el despliegue inicial. | Necesario para cumplir CR-02, FR-02, FR-03, FR-12 y FR-14 a FR-17. El informe no lo modeló. |
+| **Sistema** _(actor secundario)_ | Envía notificaciones en el panel y el correo de confirmación de registro. | Aparece en los flujos de CU-1.1, CU-4.3, CU-4.4, CU-3.3, CU-6.1.2, CU-6.1.3 y CU-6.2.2. |
 
 > _[Actualizado]_ En el informe se usaban indistintamente «Perrera» y «Refugio»; este documento usa **Refugio** (Obs. 2).
 
@@ -423,9 +420,9 @@ Agrupado por módulo, combinando requisitos, casos de uso y los apartados de con
 | Módulo | Funcionalidades |
 |---|---|
 | **Autenticación y cuentas** | Registro de persona; registro de refugio; correo de confirmación; inicio de sesión; contraseñas con hash. _[Nuevo]_ Estados de cuenta (activa, suspendida, desactivada); solo las cuentas activas inician sesión; desactivación de la propia cuenta, reversible solo por un administrador. |
-| **Roles y permisos** _[Nuevo]_ | Control de acceso basado en roles (Persona, Rescatista, Refugio, Administrador) con un catálogo cerrado de permisos `recurso:acción[:alcance]`, cargado por semilla. Autorización en el servidor por permiso y, cuando aplica, por propiedad del recurso. |
+| **Roles y permisos** _[Nuevo, v2]_ | Roles funcionales Visitante, Persona, Rescatista, Refugio y Administrador, derivados del perfil de la cuenta, su verificación vigente y su estado, sin tablas de roles ni de permisos. Matriz de permisos `recurso:acción[:alcance]` definida en un único punto del sistema (6.4). Autorización en el servidor por permiso y, cuando aplica, por propiedad del recurso. |
 | **Verificación** | Solicitud de verificación como rescatista desde el perfil; verificación de refugios por un administrador; distintivo visible de rescatista/refugio verificado. _[Nuevo]_ Revocación de verificaciones; refugio pendiente que publica sin distintivo; conversión automática a persona del refugio rechazado o revocado. |
-| **Administración** _[Nuevo]_ | Panel con solicitudes de verificación pendientes, consulta de cuentas, suspensión y reactivación, creación de administradores y retiro del rol, catálogos de raza y color, y consulta de perros eliminados en solo lectura. |
+| **Administración** _[Nuevo]_ | Panel con solicitudes de verificación pendientes, consulta de cuentas, suspensión y reactivación, creación y retiro de administradores, catálogos de raza y color, y consulta de perros eliminados en solo lectura. |
 | **Perfil y panel de usuario** | Editar datos (foto, teléfono, descripción); pestañas de *Mis perros*, *Favoritos* y *Notificaciones*; visualización del tipo de usuario; _[Nuevo]_ estado de la solicitud de verificación. |
 | **Gestión de perros** | Publicar perro (campos obligatorios y opcionales, edad calculada, raza y color de los catálogos activos, galería de fotos); editar perro (solo el publicador); marcar estado de adoptado; _[Nuevo]_ eliminar perro (borrado lógico e irreversible, por el publicador o un administrador, sin borrar imágenes del almacenamiento). |
 | **Exploración** | Página de inicio; listado de perros en tarjetas; búsqueda por nombre y filtros (raza, edad, tamaño, género, pelaje, color, fecha de publicación, esterilizado); perfil detallado del perro con información médica destacada; _[Nuevo]_ accesible para visitantes; solo se muestran perros visibles (no eliminados y con publicador activo), y el acceso directo a uno no visible responde 404. |
@@ -530,28 +527,24 @@ erDiagram
 - No hay estado de verificación del refugio ni de la solicitud de rescatista; `rescatista` es solo un booleano.
 - `raza` y `color` son texto libre, aunque FR-05 indica que se eligen de un catálogo.
 
-> _[Actualizado]_ Todos estos problemas se resuelven en el esquema normalizado (6.3 y 6.4). Los relativos a usuarios (credenciales duplicadas, verificación y administradores) se resuelven con el modelo de roles del módulo de usuarios.
+> _[Actualizado]_ Todos estos problemas se resuelven en el esquema normalizado (6.3 y 6.4). Los relativos a usuarios (credenciales duplicadas, verificación y administradores) se resuelven con el modelo de perfiles y verificación del módulo de usuarios.
 
 ### 6.3 [Propuesta] Esquema relacional normalizado
 
 Criterios: una sola tabla de cuentas para autenticación (supertipo) con subtipos `persona` y `refugio`; catálogos para raza y color; tablas propias para fotos, favoritos, solicitudes, verificación y notificaciones; la edad no se almacena (se deriva de `fecha_nacimiento`); _[Nuevo]_ los perros usan borrado lógico mediante el campo booleano `eliminado`.
 
-_[Actualizado]_ Criterios incorporados del módulo de usuarios (`Adogtame_modulo_usuarios.md`):
+_[Actualizado, v2]_ Criterios incorporados del módulo de usuarios y de la revisión de roles:
 
-- **Perfil y autorización separados.** `cuenta.tipo_perfil` indica qué datos tiene la cuenta y es el discriminador de los subtipos; los permisos se obtienen de sus roles (`cuenta_rol` → `rol_permiso` → `permiso`). El administrador no tiene tabla de subtipo.
+- **Autorización sin tablas de roles.** _[v2]_ Los permisos de una cuenta se derivan de tres datos: `cuenta.tipo_perfil`, la verificación vigente en `solicitud_verificacion` y `cuenta.estado`. La matriz de permisos (6.4) es una especificación que se implementa en un único punto de la lógica de la aplicación. El administrador no tiene tabla de subtipo.
 - **Exclusividad garantizada en la base de datos.** `persona` y `refugio` referencian `cuenta` con una FK compuesta `(id_cuenta, tipo_perfil)`, de modo que una cuenta no puede tener ambos subtipos ni cambiar de perfil sin borrar antes el anterior.
-- **Verificación con historial.** Se eliminan `cuenta.estado_verificacion` y `persona.es_rescatista`: el rescatista se expresa con el rol RESCATISTA y el refugio verificado, con una `solicitud_verificacion` aprobada.
-- **Estado de cuenta.** `cuenta.estado` (`activa`, `suspendida`, `desactivada`) controla el acceso y la visibilidad de los perros publicados.
+- **Verificación con historial.** Se eliminan `cuenta.estado_verificacion` y `persona.es_rescatista`. _[v2]_ Tanto el rescatista como el refugio verificado se expresan con una `solicitud_verificacion` aprobada del tipo correspondiente.
+- **Estado de cuenta.** `cuenta.estado` (`activa`, `suspendida`, `desactivada`) controla el acceso, los permisos y la visibilidad de los perros publicados.
 - **Catálogos desactivables.** `raza` y `color` tienen `activo` para retirar valores sin romper las FK de `perro`.
 
 ```mermaid
 erDiagram
     CUENTA ||--o| PERSONA : "es"
     CUENTA ||--o| REFUGIO : "es"
-    CUENTA ||--o{ CUENTA_ROL : "tiene"
-    ROL ||--o{ CUENTA_ROL : "se asigna"
-    ROL ||--o{ ROL_PERMISO : "agrupa"
-    PERMISO ||--o{ ROL_PERMISO : "pertenece"
     CUENTA ||--o{ PERRO : "publica"
     CUENTA ||--o{ SOLICITUD_VERIFICACION : "solicita / revisa"
     CUENTA ||--o{ NOTIFICACION : "recibe"
@@ -589,23 +582,6 @@ erDiagram
         DATE fecha_creacion
         VARCHAR ubicacion
         VARCHAR pagina_web
-    }
-    ROL {
-        SMALLINT id_rol PK
-        VARCHAR codigo UK "PERSONA|RESCATISTA|REFUGIO|ADMIN"
-        VARCHAR nombre
-    }
-    PERMISO {
-        SMALLINT id_permiso PK
-        VARCHAR codigo UK "recurso:accion:alcance"
-    }
-    ROL_PERMISO {
-        SMALLINT id_rol PK, FK
-        SMALLINT id_permiso PK, FK
-    }
-    CUENTA_ROL {
-        BIGINT id_cuenta PK, FK
-        SMALLINT id_rol PK, FK
     }
     SOLICITUD_VERIFICACION {
         BIGINT id_solicitud PK
@@ -684,11 +660,11 @@ erDiagram
     }
 ```
 
-> La vista `perro_visible` (6.4) no se muestra en el diagrama: concentra la regla de visibilidad de FR-13 sobre `perro` y `cuenta`.
+> La vista `perro_visible` (6.4) no se muestra en el diagrama: concentra la regla de visibilidad de FR-13 sobre `perro` y `cuenta`. _[v2]_ Se retiran del diagrama `ROL`, `PERMISO`, `ROL_PERMISO` y `CUENTA_ROL`.
 
 ### 6.4 [Propuesta] DDL de referencia (PostgreSQL)
 
-_[Actualizado]_ Validado en PostgreSQL junto con la semilla de roles y permisos.
+_[Actualizado, v2]_ DDL de referencia del análisis; no fija la tecnología definitiva. Se retiran las tablas y la semilla de RBAC.
 
 ```sql
 -- =====================================================================
@@ -732,6 +708,9 @@ CREATE TABLE cuenta (
     CONSTRAINT uq_cuenta_perfil UNIQUE (id_cuenta, tipo_perfil)
 );
 
+-- [v2] Filtro por tipo de cuenta en ADM-01 y conteo de administradores activos
+CREATE INDEX ix_cuenta_perfil_estado ON cuenta (tipo_perfil, estado);
+
 -- =====================================================================
 -- Subtipo persona
 -- =====================================================================
@@ -763,39 +742,9 @@ CREATE TABLE refugio (
 );
 
 -- =====================================================================
--- Roles y permisos (RBAC) [Nuevo]
--- =====================================================================
-CREATE TABLE rol (
-    id_rol SMALLSERIAL PRIMARY KEY,
-    codigo VARCHAR(20) NOT NULL UNIQUE,
-    nombre VARCHAR(60) NOT NULL
-);
-
-CREATE TABLE permiso (
-    id_permiso SMALLSERIAL PRIMARY KEY,
-    codigo     VARCHAR(60) NOT NULL UNIQUE
-               -- recurso:acción[:alcance]
-               CHECK (codigo ~ '^[a-z_]+:[a-z_]+(:(propio|cualquiera))?$')
-);
-
-CREATE TABLE rol_permiso (
-    id_rol     SMALLINT NOT NULL REFERENCES rol (id_rol)         ON DELETE CASCADE,
-    id_permiso SMALLINT NOT NULL REFERENCES permiso (id_permiso) ON DELETE CASCADE,
-    PRIMARY KEY (id_rol, id_permiso)
-);
-
-CREATE TABLE cuenta_rol (
-    id_cuenta BIGINT   NOT NULL REFERENCES cuenta (id_cuenta) ON DELETE CASCADE,
-    id_rol    SMALLINT NOT NULL REFERENCES rol (id_rol),
-    PRIMARY KEY (id_cuenta, id_rol)
-);
-
--- Filtro por rol en ADM-01 y conteo de administradores activos (último admin)
-CREATE INDEX ix_cuenta_rol_rol ON cuenta_rol (id_rol);
-
--- =====================================================================
 -- Verificación [Actualizado]
 -- =====================================================================
+-- [v2] Fuente de verdad del rescatista y del refugio verificado
 CREATE TABLE solicitud_verificacion (
     id_solicitud      BIGSERIAL   PRIMARY KEY,
     id_cuenta         BIGINT      NOT NULL REFERENCES cuenta (id_cuenta),
@@ -832,7 +781,8 @@ CREATE TABLE solicitud_verificacion (
 CREATE UNIQUE INDEX ux_sv_pendiente ON solicitud_verificacion (id_cuenta)
     WHERE estado = 'pendiente';
 
--- Una sola verificación vigente por cuenta y tipo
+-- Una sola verificación vigente por cuenta y tipo.
+-- [v2] Además sirve para resolver si una persona es rescatista.
 CREATE UNIQUE INDEX ux_sv_aprobada ON solicitud_verificacion (id_cuenta, tipo)
     WHERE estado = 'aprobada';
 
@@ -956,126 +906,67 @@ CREATE TRIGGER tg_perro_sin_truncate
 REVOKE DELETE, TRUNCATE ON perro FROM PUBLIC;
 ```
 
-**Semilla de roles y permisos** _[Nuevo]_. Las acciones disponibles para el visitante (registro, inicio de sesión, confirmación de correo y exploración de perros, perfiles y directorios) son endpoints públicos y no tienen permiso. RESCATISTA no tiene filas en `rol_permiso`: sus permisos efectivos son los de PERSONA, que siempre lo acompaña.
+**Matriz de permisos por perfil** _[v2]_. Reemplaza la semilla de roles y permisos. Es la especificación que debe implementar el único punto de autorización del sistema (NFR-09). Las acciones disponibles para el visitante (registro, inicio de sesión, confirmación de correo y exploración de perros, perfiles y directorios) son públicas y no tienen permiso. Rescatista hereda todo lo de Persona y, por ahora, no tiene permisos propios (DEC-05).
+
+| Permiso | Persona | Rescatista | Refugio | Administrador |
+|---|:-:|:-:|:-:|:-:|
+| `cuenta:editar:propio` | ✅ | ✅ | ✅ | ✅ |
+| `cuenta:desactivar:propio` | ✅ | ✅ | ✅ | ✅ |
+| `verificacion:solicitar:propio` | ✅ ¹ | ❌ | ❌ | ❌ |
+| `verificacion:ver:propio` | ✅ | ✅ | ✅ | ❌ |
+| `verificacion:listar:cualquiera` | ❌ | ❌ | ❌ | ✅ |
+| `verificacion:resolver:cualquiera` | ❌ | ❌ | ❌ | ✅ |
+| `verificacion:revocar:cualquiera` | ❌ | ❌ | ❌ | ✅ |
+| `perro:publicar` | ✅ | ✅ | ✅ | ❌ |
+| `perro:editar:propio` | ✅ | ✅ | ✅ | ❌ |
+| `perro:eliminar:propio` | ✅ | ✅ | ✅ | ❌ |
+| `perro:eliminar:cualquiera` | ❌ | ❌ | ❌ | ✅ |
+| `perro:ver_eliminados` | ❌ | ❌ | ❌ | ✅ |
+| `favorito:gestionar:propio` | ✅ | ✅ | ❌ | ❌ |
+| `adopcion:solicitar` | ✅ | ✅ | ❌ | ❌ |
+| `adopcion:cancelar:propio` | ✅ | ✅ | ❌ | ❌ |
+| `adopcion:ver:propio` | ✅ | ✅ | ❌ | ❌ |
+| `adopcion:ver_recibidas:propio` | ✅ | ✅ | ✅ | ❌ |
+| `adopcion:resolver:propio` | ✅ | ✅ | ✅ | ❌ |
+| `notificacion:gestionar:propio` | ✅ | ✅ | ✅ | ❌ |
+| `usuario:listar` | ❌ | ❌ | ❌ | ✅ |
+| `usuario:ver_detalle` | ❌ | ❌ | ❌ | ✅ |
+| `usuario:suspender` | ❌ | ❌ | ❌ | ✅ |
+| `admin:crear` | ❌ | ❌ | ❌ | ✅ |
+| `admin:revocar` | ❌ | ❌ | ❌ | ✅ |
+| `catalogo:gestionar` | ❌ | ❌ | ❌ | ✅ |
+
+¹ Solo sin solicitud pendiente ni verificación vigente (CU-5.3).
+
+**Resolución de permisos** _[v2]_:
+
+- Una cuenta no activa no tiene ningún permiso.
+- La columna se elige por `tipo_perfil`; una persona usa la columna Rescatista si tiene una verificación de rescatista aprobada.
+- Un permiso con alcance `propio` exige además que la cuenta sea dueña del recurso; uno con alcance `cualquiera`, no.
+
+**Primer administrador** _[Actualizado, v2]_ (script de despliegue, no se ejecuta desde la interfaz; el hash se genera con la misma función que usa la aplicación):
 
 ```sql
-INSERT INTO rol (codigo, nombre) VALUES
-    ('PERSONA',    'Persona'),
-    ('RESCATISTA', 'Rescatista verificado'),
-    ('REFUGIO',    'Refugio'),
-    ('ADMIN',      'Administrador');
-
-INSERT INTO permiso (codigo) VALUES
-    -- Cuenta
-    ('cuenta:editar:propio'),
-    ('cuenta:desactivar:propio'),
-    -- Verificación
-    ('verificacion:solicitar:propio'),
-    ('verificacion:ver:propio'),
-    ('verificacion:listar:cualquiera'),
-    ('verificacion:resolver:cualquiera'),
-    ('verificacion:revocar:cualquiera'),
-    -- Perros
-    ('perro:publicar'),
-    ('perro:editar:propio'),
-    ('perro:eliminar:propio'),
-    ('perro:eliminar:cualquiera'),
-    ('perro:ver_eliminados'),
-    -- Favoritos
-    ('favorito:gestionar:propio'),
-    -- Adopción
-    ('adopcion:solicitar'),
-    ('adopcion:cancelar:propio'),
-    ('adopcion:ver:propio'),
-    ('adopcion:ver_recibidas:propio'),
-    ('adopcion:resolver:propio'),
-    -- Notificaciones
-    ('notificacion:gestionar:propio'),
-    -- Administración
-    ('usuario:listar'),
-    ('usuario:ver_detalle'),
-    ('usuario:suspender'),
-    ('admin:crear'),
-    ('admin:revocar'),
-    ('catalogo:gestionar');
-
-INSERT INTO rol_permiso (id_rol, id_permiso)
-SELECT r.id_rol, p.id_permiso
-FROM (VALUES
-    -- PERSONA
-    ('PERSONA', 'cuenta:editar:propio'),
-    ('PERSONA', 'cuenta:desactivar:propio'),
-    ('PERSONA', 'verificacion:solicitar:propio'),
-    ('PERSONA', 'verificacion:ver:propio'),
-    ('PERSONA', 'perro:publicar'),
-    ('PERSONA', 'perro:editar:propio'),
-    ('PERSONA', 'perro:eliminar:propio'),
-    ('PERSONA', 'favorito:gestionar:propio'),
-    ('PERSONA', 'adopcion:solicitar'),
-    ('PERSONA', 'adopcion:cancelar:propio'),
-    ('PERSONA', 'adopcion:ver:propio'),
-    ('PERSONA', 'adopcion:ver_recibidas:propio'),
-    ('PERSONA', 'adopcion:resolver:propio'),
-    ('PERSONA', 'notificacion:gestionar:propio'),
-    -- REFUGIO
-    ('REFUGIO', 'cuenta:editar:propio'),
-    ('REFUGIO', 'cuenta:desactivar:propio'),
-    ('REFUGIO', 'verificacion:ver:propio'),
-    ('REFUGIO', 'perro:publicar'),
-    ('REFUGIO', 'perro:editar:propio'),
-    ('REFUGIO', 'perro:eliminar:propio'),
-    ('REFUGIO', 'adopcion:ver_recibidas:propio'),
-    ('REFUGIO', 'adopcion:resolver:propio'),
-    ('REFUGIO', 'notificacion:gestionar:propio'),
-    -- ADMIN
-    ('ADMIN', 'cuenta:editar:propio'),
-    ('ADMIN', 'cuenta:desactivar:propio'),
-    ('ADMIN', 'verificacion:listar:cualquiera'),
-    ('ADMIN', 'verificacion:resolver:cualquiera'),
-    ('ADMIN', 'verificacion:revocar:cualquiera'),
-    ('ADMIN', 'perro:eliminar:cualquiera'),
-    ('ADMIN', 'perro:ver_eliminados'),
-    ('ADMIN', 'usuario:listar'),
-    ('ADMIN', 'usuario:ver_detalle'),
-    ('ADMIN', 'usuario:suspender'),
-    ('ADMIN', 'admin:crear'),
-    ('ADMIN', 'admin:revocar'),
-    ('ADMIN', 'catalogo:gestionar')
-) AS v (rol, permiso)
-JOIN rol     r ON r.codigo = v.rol
-JOIN permiso p ON p.codigo = v.permiso;
-```
-
-**Primer administrador** _[Nuevo]_ (script de despliegue, no se ejecuta desde la interfaz; el hash se genera con la misma función que usa la aplicación):
-
-```sql
-WITH nueva AS (
-    INSERT INTO cuenta (tipo_perfil, correo, contrasena_hash, correo_confirmado)
-    VALUES ('administrador', :correo_admin, :hash_admin, TRUE)
-    RETURNING id_cuenta
-)
-INSERT INTO cuenta_rol (id_cuenta, id_rol)
-SELECT n.id_cuenta, r.id_rol
-FROM nueva n
-JOIN rol r ON r.codigo = 'ADMIN';
+INSERT INTO cuenta (tipo_perfil, correo, contrasena_hash, correo_confirmado)
+VALUES ('administrador', :correo_admin, :hash_admin, TRUE);
 ```
 
 **Reglas de negocio que no caben en el DDL (validar en la capa de aplicación o con triggers):**
 
 _Autorización y cuentas_
 
-- _[Nuevo]_ Toda acción se autoriza por permiso y, si su alcance es `propio`, por propiedad del recurso (NFR-09). Los endpoints públicos omiten teléfono y correo cuando no hay sesión (FR-11).
-- _[Nuevo]_ Invariantes entre perfil y roles: `persona` tiene siempre PERSONA y, opcionalmente, RESCATISTA; `refugio` solo REFUGIO; `administrador` solo ADMIN. Se mantienen en la misma transacción que cualquier cambio de perfil o rol.
+- _[Nuevo, v2]_ Toda acción se autoriza según la matriz de permisos y, si su alcance es `propio`, por propiedad del recurso (NFR-09). La matriz se define en un único punto; ninguna otra regla consulta `tipo_perfil` para decidir permisos. Los endpoints públicos omiten teléfono y correo cuando no hay sesión (FR-11).
 - _[Nuevo]_ Toda petición autenticada exige `cuenta.estado = 'activa'`.
 - _[Nuevo]_ Al suspender o desactivar una cuenta se cancelan sus solicitudes de adopción pendientes, enviadas y recibidas, y se notifica a cada contraparte. Al reactivarla, esas solicitudes no se reabren.
-- _[Nuevo]_ No se puede suspender, desactivar ni retirar el rol ADMIN al último administrador activo; un administrador no se suspende ni se retira el rol a sí mismo. Retirar el rol ADMIN también desactiva la cuenta.
+- _[Nuevo, v2]_ No se puede suspender ni desactivar al último administrador activo (cuenta con perfil `administrador` y estado `activa`); un administrador no se suspende ni se retira a sí mismo. Retirar a un administrador (CU-6.2.5) desactiva su cuenta.
+- _[v2]_ Reactivar una cuenta conserva su perfil: una cuenta con perfil `administrador` recupera el acceso administrativo, sin pasos ni avisos adicionales.
 
 _Verificación_
 
-- _[Nuevo]_ Transiciones válidas de `solicitud_verificacion`: `pendiente` → `aprobada` / `rechazada`; `aprobada` → `revocada`. Los demás estados son finales. `id_admin_revisor` corresponde a una cuenta con rol ADMIN.
-- _[Nuevo]_ Las solicitudes de tipo `rescatista` solo las crea una cuenta con perfil `persona` sin rol RESCATISTA; las de tipo `refugio` solo se crean en el registro.
-- _[Nuevo]_ Aprobar una solicitud de rescatista asigna el rol RESCATISTA; revocarla lo retira. Cada resultado se notifica al solicitante.
-- _[Nuevo]_ Rechazar o revocar la verificación de un refugio lo convierte en persona en la misma transacción, en este orden (lo impone la FK compuesta): borrar la fila de `refugio`, cambiar `cuenta.tipo_perfil` a `persona`, insertar la fila de `persona` con `nombre_institucion` como `nombre`, reemplazar REFUGIO por PERSONA en `cuenta_rol` y enviar una única notificación. Sus perros se conservan.
+- _[Nuevo, v2]_ Transiciones válidas de `solicitud_verificacion`: `pendiente` → `aprobada` / `rechazada`; `aprobada` → `revocada`. Los demás estados son finales. `id_admin_revisor` corresponde a una cuenta con perfil `administrador`.
+- _[Nuevo, v2]_ Las solicitudes de tipo `rescatista` solo las crea una cuenta con perfil `persona` sin verificación de rescatista aprobada; las de tipo `refugio` solo se crean en el registro.
+- _[Nuevo, v2]_ Una persona es rescatista mientras tenga una solicitud de tipo `rescatista` en estado `aprobada`. Aprobarla la convierte en rescatista y revocarla le quita esa condición, sin otros cambios en los datos. Cada resultado se notifica al solicitante.
+- _[Nuevo, v2]_ Rechazar o revocar la verificación de un refugio lo convierte en persona en la misma transacción, en este orden (lo impone la FK compuesta): borrar la fila de `refugio`, cambiar `cuenta.tipo_perfil` a `persona`, insertar la fila de `persona` con `nombre_institucion` como `nombre` y enviar una única notificación. Sus perros se conservan.
 
 _Perros y adopción_
 
@@ -1097,14 +988,14 @@ _Catálogos_
 
 | Colección / campo en Mongo (según informe) | Equivalente relacional |
 |---|---|
-| `usuarios` | `cuenta` (`tipo_perfil = 'persona'`) + `persona` + rol PERSONA |
-| `refugios` / `perreras` | `cuenta` (`tipo_perfil = 'refugio'`) + `refugio` + rol REFUGIO + `solicitud_verificacion` según su estado de verificación |
+| `usuarios` | `cuenta` (`tipo_perfil = 'persona'`) + `persona` |
+| `refugios` / `perreras` | `cuenta` (`tipo_perfil = 'refugio'`) + `refugio` + `solicitud_verificacion` según su estado de verificación |
 | `usuarios.favoritos[]` | `favorito` |
-| `usuarios.rescatista` | _[Actualizado]_ rol RESCATISTA + `solicitud_verificacion` aprobada |
+| `usuarios.rescatista` | _[v2]_ `solicitud_verificacion` de tipo `rescatista` aprobada |
 | `perros.fotos[]` y `perros.foto_perfil` | `foto_perro` (con `es_principal`) |
 | `perros.adoptado` | `perro.estado` + `perro.id_adoptante` |
 | `perros.raza`, `perros.color` (texto) | `raza`, `color` (catálogos) |
-| _(no existía)_ | `solicitud_adopcion`, `notificacion`, `perro.eliminado`; _[Nuevo]_ `cuenta.estado`, `rol`, `permiso`, `rol_permiso`, `cuenta_rol`, `perro_visible` y las cuentas de administrador |
+| _(no existía)_ | `solicitud_adopcion`, `notificacion`, `perro.eliminado`; _[Nuevo]_ `cuenta.estado`, `perro_visible` y las cuentas de administrador |
 
 ---
 
@@ -1117,10 +1008,10 @@ _Catálogos_
 | 1 | Diagrama de casos de uso | La flecha de generalización entre Usuario y Rescatista parece invertida: según FR-03, el **Rescatista especializa al Usuario**. | Resuelta: el diagrama de 3.1 muestra que Rescatista especializa a Persona. |
 | 2 | Diagrama de casos de uso | Se usa «Perrera» en el diagrama y «Refugio» en el texto; conviene unificar el término. | Resuelta: se usa «Refugio» en diagramas, actores y modelo. |
 | 3 | Diagrama de casos de uso | Las relaciones punteadas no indican `<<include>>` / `<<extend>>`. | Resuelta: los diagramas de 3.1 indican `<<extend>>`. |
-| 4 | Diagrama de casos de uso | El diagrama original no mostraba al **Administrador**, aunque FR-02 y FR-03 dependen de él. | Resuelta: CU-15 a CU-24 para el administrador y CU-25 para solicitar verificación como rescatista. |
-| 5 | Diagrama vs. requisitos | Los directorios de rescatistas y refugios (y FR-11, ver perfil de usuario) existen en pruebas y construcción, pero no tienen caso de uso. | Resuelta: CU-27 cubre perfiles públicos y directorios (FR-11). |
-| 6 | Detalle CU «Editar información de perro» | Lista como actores solo a Rescatista y Refugio, pero FR-05/FR-06 permiten que cualquier usuario general publique y edite su perro. | Resuelta: CU-08 depende de ser el publicador, sin importar el rol. |
-| 7 | Detalle CU «Confirmar adopción» | Solo Rescatista y Refugio confirman, pero un usuario general que publicó un perro también debería poder confirmar adopciones (el diagrama sí lo conecta al Usuario). | Resuelta: CU-10 depende de ser el publicador, sin importar el rol. |
+| 4 | Diagrama de casos de uso | El diagrama original no mostraba al **Administrador**, aunque FR-02 y FR-03 dependen de él. | Resuelta: paquete 6 para el administrador y CU-5.3 para solicitar verificación como rescatista. |
+| 5 | Diagrama vs. requisitos | Los directorios de rescatistas y refugios (y FR-11, ver perfil de usuario) existen en pruebas y construcción, pero no tienen caso de uso. | Resuelta: CU-2.4 cubre perfiles públicos y directorios (FR-11). |
+| 6 | Detalle CU «Editar información de perro» | Lista como actores solo a Rescatista y Refugio, pero FR-05/FR-06 permiten que cualquier usuario general publique y edite su perro. | Resuelta: CU-3.2 depende de ser el publicador, sin importar el rol. |
+| 7 | Detalle CU «Confirmar adopción» | Solo Rescatista y Refugio confirman, pero un usuario general que publicó un perro también debería poder confirmar adopciones (el diagrama sí lo conecta al Usuario). | Resuelta: CU-4.3 depende de ser el publicador, sin importar el rol. |
 | 8 | Detalle de CU vs. requisitos | Comportamientos sin requisito asociado: correo de confirmación al registrarse, recordatorio por correo de notificaciones no leídas y comentarios al rechazar. | Resuelta: el correo de confirmación pasa a FR-01/FR-02, los comentarios al rechazar a FR-07, y el recordatorio se descarta (Obs. 17). |
 | 9 | CU «Solicitar adopción» | No se definen los campos del formulario de solicitud. La entrevista sugiere identificación y dirección exacta del adoptante. | Resuelta: la solicitud lleva solo un mensaje (FR-07); identificación y dirección quedan para el contacto directo y la validación documental futura. |
 | 10 | Caso de prueba TC001 | Menciona cédula y dirección en el registro, campos que no existen en FR-01 ni en el modelo de datos. | Fuera del documento: el plan de pruebas se replanteará a partir de este análisis. |
@@ -1128,10 +1019,12 @@ _Catálogos_
 | 12 | Modelo de datos | Ver «Problemas del modelo original» (6.2): columnas JSON, arco exclusivo, credenciales duplicadas y falta de entidades para solicitudes, notificaciones y verificación. | Resuelta en el esquema de 6.3 y 6.4. |
 | 13 | Requisitos no funcionales | Faltan NF de disponibilidad, escalabilidad, privacidad de datos personales (teléfono, ubicación), accesibilidad y mantenibilidad, varios de los cuales sí aparecen después en las métricas y en el plan de mantenimiento. | Resuelta: disponibilidad (NFR-10), privacidad y protección de datos (FR-11, NFR-07, NFR-09, NFR-11) y mantenibilidad (NFR-06); además NFR-12 fija las pantallas de escritorio soportadas. Escalabilidad, accesibilidad y recuperabilidad quedan fuera del alcance de este documento. |
 | 14 | Métricas | La métrica «Tasa de errores HTTP» está duplicada. | Fuera del documento: las métricas se replantearán junto con el plan de pruebas. |
-| 15 _[Nuevo]_ | Casos de uso vs. FR-15 | La desactivación de la propia cuenta está en FR-15, pero no tiene caso de uso. | Resuelta: CU-26. |
-| 16 _[Nuevo]_ | CU-14 | El administrador llega a los perros desde las vistas públicas, que usan `perro_visible`; por eso no puede eliminar los perros de una cuenta suspendida o desactivada mientras siga inactiva. | Resuelta: el administrador los alcanza desde *Perros eliminados* (CU-24), que lee `perro` directamente (FR-12, CU-14). |
-| 17 _[Nuevo]_ | CU-11 vs. módulo de usuarios | El módulo de usuarios mantiene la confirmación como único envío de correo de ese módulo (DEC-14), pero CU-11 conserva el recordatorio por correo de notificaciones no leídas. Conviene confirmar si el recordatorio sigue en alcance. | Resuelta: el recordatorio se descarta; la confirmación es el único correo (CU-11, 4.1, 5.1). |
+| 15 _[Nuevo]_ | Casos de uso vs. FR-15 | La desactivación de la propia cuenta está en FR-15, pero no tiene caso de uso. | Resuelta: CU-5.4. |
+| 16 _[Nuevo]_ | CU-3.3 | El administrador llega a los perros desde las vistas públicas, que usan `perro_visible`; por eso no puede eliminar los perros de una cuenta suspendida o desactivada mientras siga inactiva. | Resuelta: el administrador los alcanza desde *Perros eliminados* (CU-6.3.1), que lee `perro` directamente (FR-12, CU-3.3). |
+| 17 _[Nuevo]_ | CU-4.4 vs. módulo de usuarios | El módulo de usuarios mantiene la confirmación como único envío de correo de ese módulo (DEC-14), pero CU-4.4 conserva el recordatorio por correo de notificaciones no leídas. Conviene confirmar si el recordatorio sigue en alcance. | Resuelta: el recordatorio se descarta; la confirmación es el único correo (CU-4.4, 4.1, 5.1). |
 | 18 _[Nuevo]_ | NFR-05 vs. DDL | NFR-05 exige que la base de datos impida el borrado físico de perros, pero el DDL no lo impone (no hay trigger ni revocación de `DELETE` sobre `perro`). | Resuelta: el DDL de 6.4 agrega triggers `BEFORE DELETE` y `BEFORE TRUNCATE` sobre `perro` y revoca esos permisos. |
+| 19 _[v2]_ | Modelo de roles vs. modelo de datos | El RBAC con catálogo cerrado duplicaba información: el perfil y el rol base coincidían siempre, había que sincronizarlos en el registro, la conversión de refugio y el retiro de administradores, y RESCATISTA no tenía permisos propios. | Resuelta: se eliminan las tablas de roles y permisos; los permisos se derivan del perfil, la verificación vigente y el estado (DEC-01 revisada, 6.3 y 6.4). |
+| 20 _[v2]_ | CU-6.2.3 vs. CU-6.2.5 | Sin roles, retirar a un administrador solo desactiva su cuenta; como su perfil sigue siendo `administrador`, reactivarla le devuelve el acceso administrativo. | Resuelta: es el comportamiento esperado. La reactivación mantiene el perfil de administrador y no muestra ninguna advertencia adicional (CU-6.2.3, FR-16). |
 
 ---
 
