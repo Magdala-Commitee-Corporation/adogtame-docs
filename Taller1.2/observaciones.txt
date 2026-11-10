@@ -1,0 +1,7 @@
+1. Tipos de modelos de gestión de proyectos
+
+Aunque seleccionan RAD y el modelo iterativo-incremental ágil, la justificación es general y no se relaciona suficientemente con las funcionalidades específicas del proyecto. Deben explicar cómo aplicarán los prototipos y las iteraciones al registro de adoptantes, publicación de perros, verificación de refugios y proceso de adopción. Asimismo, deben precisar quiénes validarán los prototipos y cómo incorporarán sus observaciones en las siguientes iteraciones.
+
+2. Vulnerabilidades, riesgos y seguridad
+
+La política mínima de seguridad no incorpora disposiciones explícitas para controlar la carga de fotografías potencialmente maliciosas ni para proteger la ubicación exacta de quienes publican mascotas. Deben establecer estas medidas como reglas obligatorias, considerando que ambas vulnerabilidades fueron identificadas en el análisis.

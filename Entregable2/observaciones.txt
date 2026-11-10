@@ -1,0 +1,8 @@
+Mejorar:
+
+1. Corregir el BPMN propuesto: incorporar la validación de información antes de publicar un perro y aclarar cómo se relaciona la verificación de rescatistas y refugios con las publicaciones.
+
+2. Precisar el objetivo general: evitar afirmar que el sistema reducirá nuevos abandonos si no se realizará seguimiento después de la adopción. Pueden enfocarlo en facilitar la búsqueda y mejorar la compatibilidad entre adoptantes y perros.
+Colocar los objetivos en base a recomendaciones realizadas en clase.
+
+La recomendación mediante IA continúa siendo una funcionalidad central. Deben justificar qué información del adoptante y del perro utilizarán para determinar compatibilidad. Un test de funciones cognitivas, por sí solo, no demuestra que exista compatibilidad para la adopción.

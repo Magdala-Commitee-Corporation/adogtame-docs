@@ -1,0 +1,11 @@
+En las siguientes entregas mejorar:
+
+1. Matriz SDLC, reemplazar la descripción de herramientas por objetivos de cada fase. En Diseño, definir qué componentes e interfaces se diseñarán; en Construcción, qué funcionalidades se implementarán; y en Despliegue, cómo se pondrá el sistema a disposición de los usuarios.
+
+2. Mantenimiento, incorporar actividades de corrección de errores y mejora de las funcionalidades existentes, además de los nuevos módulos.
+
+3. Diagrama SDLC, conectar las nueve fases para representar un flujo continuo.
+
+4. Identificar explícitamente los artefactos que representarán cada requisito, especialmente en las relaciones correspondientes a verificación de rescatistas y gestión de adopciones.
+
+Precisar cómo se establecerá la compatibilidad entre el adoptante y el perro. Actualmente proponen utilizar una prueba de funciones cognitivas, pero no explican su relación con las características y necesidades del animal. Conviene determinar qué información se necesitará realmente para las recomendaciones.

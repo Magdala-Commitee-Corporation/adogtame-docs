@@ -1,0 +1,7 @@
+1. Metodología, corregir las diferencias entre RACI y cronograma sobre los responsables del prototipo y del modelo de datos. Incorporar representantes de refugios o rescatistas en la validación de los incrementos.
+
+2. Requisitos, verificación del correo cuando se modifique; diferenciar solicitud aceptada de adopción concretada; precisar el cálculo de compatibilidad y los criterios para verificar refugios y rescatistas.
+
+3. Indicadores, añadir frecuencia de medición, acciones correctivas e indicadores de aceptación de los incrementos RAD.
+
+Prototipo, incorporar pantallas de registro, autenticación, verificación de cuentas y administración. Representar también las funcionalidades del publicador y la gestión de solicitudes de adopción. Mantener correspondencia con HU-04, mostrando el porcentaje de compatibilidad establecido en los criterios de aceptación.
