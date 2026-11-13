@@ -48,3 +48,9 @@ Resume los 25 requisitos no funcionales (RNF-01 a RNF-25) agrupados por tipo (re
 
 
 ## 3. Instrumentos de Diseño
+
+### 3.1. Modelo Entidad - Relación
+
+**Archivo:** `adog_MER.md`
+
+Describe los datos que conserva el sistema: el diagrama de las 15 entidades con sus atributos y relaciones, la trazabilidad de cada entidad con los requisitos y reglas, las convenciones del modelo y un diccionario de datos con el tipo, la restricción y la descripción de cada campo.
