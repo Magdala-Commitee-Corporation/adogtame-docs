@@ -53,13 +53,13 @@ Resume los 25 requisitos no funcionales (RNF-01 a RNF-25) agrupados por tipo (re
 
 **Archivo:** `adog_MER.md`
 
-Describe los datos que conserva el sistema: el diagrama de las 15 entidades con sus atributos y relaciones, la trazabilidad de cada entidad con los requisitos y reglas, la propiedad de cada entidad por microservicio y las referencias lógicas entre ellos, las convenciones del modelo y un diccionario de datos con el tipo, la restricción y la descripción de cada campo.
+Describe los datos que conserva el sistema: el diagrama de las 15 entidades con sus atributos y relaciones, la trazabilidad de cada entidad con los requisitos y reglas, la propiedad de cada entidad por microservicio (una base de datos por servicio), las referencias lógicas y los datos replicados entre ellos, las convenciones del modelo y un diccionario de datos con el tipo, la restricción y la descripción de cada campo.
 
 ### 3.2. Arquitectura
 
 **Archivo:** `adog_ARCH.md`
 
-Describe cómo se organiza el sistema: el estilo de tres capas desplegado en AWS serverless con lógica funcional, el diagrama de componentes (presentación, entrega y perímetro, negocio por servicios en funciones Lambda, adaptadores, datos y servicios externos), la responsabilidad y los requisitos de cada componente, las decisiones de diseño trazadas con los RNF y los controles de seguridad por capa.
+Describe cómo se organiza el sistema: un backend de 4 microservicios (`Auth`, `Dogs`, `Requests` y `Recommendation`) en AWS serverless, con lógica funcional en TypeScript y despliegue independiente. Cada microservicio es dueño de sus datos y tiene su propia base de datos, con almacenamiento políglota (PostgreSQL en Aurora para `Dogs` y DynamoDB para `Auth`, `Requests` y `Recommendation`). Incluye el diagrama de componentes, la responsabilidad y los requisitos de cada servicio, las llamadas síncronas entre ellos, el almacenamiento y sus consecuencias (referencias lógicas, datos replicados y consistencia), la sección de comunicación (sin colas ni eventos; correos y recomendaciones síncronos con *timeout* y respaldo; contrato de errores y trato con el frontend), las decisiones de diseño trazadas con los RNF, los controles de seguridad por capa y las decisiones abiertas.
 
 ### 3.3. Clases
 
@@ -72,7 +72,7 @@ Presenta el modelo conceptual preliminar del servidor en tres diagramas de clase
 
 **Archivo:** `adog_MS.md`
 
-Describe cada uno de los 4 microservicios (`Auth`, `Dogs`, `Requests` y `Recommendation`): su propósito y límites, los datos que posee, las operaciones públicas con su ruta, requisito, rol autorizado y reglas, las operaciones internas que expone, las llamadas que realiza, los adaptadores que usa y las pruebas clave. Incluye las convenciones comunes (identidad de la petición, contrato de errores y llamadas internas), el catálogo de llamadas entre servicios, los flujos que cruzan servicios con su manejo de fallos (aprobación de refugio y de rescatista, aceptación de solicitudes, baja de cuentas y generación de recomendaciones), las decisiones abiertas y la trazabilidad con los requisitos funcionales.
+Describe cada uno de los 4 microservicios (`Auth`, `Dogs`, `Requests` y `Recommendation`): su propósito y límites, los datos que posee y su almacenamiento (tablas, claves e índices propuestos), las operaciones públicas con su ruta, requisito, rol autorizado y reglas, las operaciones internas que expone, las llamadas que realiza, los adaptadores que usa y las pruebas clave. Incluye las convenciones comunes (identidad de la petición, contrato de errores y llamadas internas), el catálogo de llamadas entre servicios, los flujos que cruzan servicios con su manejo de fallos (aprobación de refugio y de rescatista, aceptación de solicitudes, baja de cuentas y generación de recomendaciones), las decisiones abiertas y la trazabilidad con los requisitos funcionales.
 
 ## 4. Planificación
 

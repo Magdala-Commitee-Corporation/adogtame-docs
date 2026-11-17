@@ -1,6 +1,6 @@
 # ADOGTAME — Microservicios
 
-> **Derivado de:** `adog_ARCH.md` (arquitectura y comunicación), `adog_MER.md` (datos), `adog_CLS.md` (funciones), `adog_RF.md`, `adog_RN.md`, `adog_RNF.md` y `adog_CU.md` (requisitos), `adog_REC.md` (recomendación) y el material de apoyo `support/dev/manejo_roles.md` y `support/dev/solicitudes_verificacion.md`. Si este documento y el ERS difieren, prevalece el ERS y este debe actualizarse; si difiere de `adog_ARCH.md` en una decisión de arquitectura, prevalece `adog_ARCH.md`.
+> **Derivado de:** `adog_ARCH.md` (arquitectura, datos y comunicación), `adog_MER.md` (modelo conceptual de datos), `adog_CLS.md` (funciones), `adog_RF.md`, `adog_RN.md`, `adog_RNF.md` y `adog_CU.md` (requisitos), `adog_REC.md` (recomendación) y el material de apoyo `support/dev/manejo_roles.md` y `support/dev/solicitudes_verificacion.md`. Si este documento y el ERS difieren, prevalece el ERS y este debe actualizarse; si difiere de `adog_ARCH.md` en una decisión de arquitectura, prevalece `adog_ARCH.md`.
 > Describe **cada uno de los 4 microservicios** (`Auth`, `Dogs`, `Requests` y `Recommendation`): qué datos posee, qué operaciones ofrece, qué reglas aplica, a quién llama y cómo se prueba, y los **flujos que cruzan servicios**. Es una especificación **preliminar** para comenzar la construcción: las rutas, los nombres y los tipos exactos se fijan en el contrato de cada servicio durante el incremento de cimientos (`planning/Adogtame_planificacion_v2.xlsx`).
 > Convenciones: los servicios y las rutas llevan nombre en inglés; los textos al usuario, en español. «Registrado» es cualquier usuario con sesión; «Adoptante» es un usuario registrado con rol MIEMBRO, RESCATISTA o ADMINISTRADOR (no REFUGIO); «Publicador» es el usuario registrado que publica un perro (`manejo_roles.md` §3).
 
@@ -8,14 +8,14 @@
 
 ## 1. Visión general
 
-| Microservicio | Ruta base | Entidades que posee (esquema) | Módulos internos | Requisitos funcionales |
+| Microservicio | Ruta base | Entidades que posee (almacén) | Módulos internos | Requisitos funcionales |
 |---|---|---|---|---|
-| `Auth` | `/auth` | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` (`auth`) | cuentas, sesiones, perfiles, administración de usuarios | RF-03 a RF-05, RF-07 a RF-11, RF-26 a RF-28, RF-31, RF-34 |
-| `Dogs` | `/dogs` | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` (`dogs`) | perros, catálogos, favoritos | RF-01, RF-02, RF-12, RF-19 a RF-21, RF-23, RF-29, RF-30, RF-32, RF-33 |
-| `Requests` | `/requests` | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` (`requests`) | adopción, verificación | RF-06, RF-16 a RF-18, RF-22, RF-24, RF-25 |
-| `Recommendation` | `/recommendation` | `PERFIL_ADOPTANTE` (`recommendation`) | test, recomendaciones | RF-13 a RF-15 |
+| `Auth` | `/auth` | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` (DynamoDB) | cuentas, sesiones, perfiles, administración de usuarios | RF-03 a RF-05, RF-07 a RF-11, RF-26 a RF-28, RF-31, RF-34 |
+| `Dogs` | `/dogs` | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` (PostgreSQL) | perros, catálogos, favoritos | RF-01, RF-02, RF-12, RF-19 a RF-21, RF-23, RF-29, RF-30, RF-32, RF-33 |
+| `Requests` | `/requests` | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` (DynamoDB) | adopción, verificación | RF-06, RF-16 a RF-18, RF-22, RF-24, RF-25 |
+| `Recommendation` | `/recommendation` | `PERFIL_ADOPTANTE` (DynamoDB) | test, recomendaciones | RF-13 a RF-15 |
 
-Cada servicio es una función AWS Lambda con despliegue propio y es el único que lee y escribe su esquema. Las llamadas entre servicios son síncronas (flechas punteadas):
+Cada servicio es una función AWS Lambda con despliegue propio y es **dueño de sus datos**: tiene su propia base de datos y es el único que la lee y escribe. El almacenamiento es políglota: `Dogs` usa PostgreSQL (Amazon Aurora Serverless) y los demás usan Amazon DynamoDB (`adog_ARCH.md` §3.6). Las llamadas entre servicios son síncronas (flechas punteadas):
 
 ```mermaid
 flowchart LR
@@ -86,11 +86,19 @@ Resumen de `adog_ARCH.md` §4.3, que se aplica a todas las llamadas de la secci�
 
 ### 2.5. Estructura interna de cada servicio
 
-Programación funcional (sin clases): manejador de Lambda → funciones de aplicación (orquestan, autorizan y controlan la transacción en su esquema) → funciones de dominio (reglas puras) y funciones de acceso a datos (consultas parametrizadas u ORM, RNF-20). Los adaptadores (almacenamiento, correo, IA) y el cliente interno se reciben como parámetro desde la librería compartida. Cada servicio usa un usuario de base de datos con permisos solo sobre su esquema.
+Programación funcional (sin clases): manejador de Lambda → funciones de aplicación (orquestan, autorizan y controlan la transacción dentro de su propia base de datos) → funciones de dominio (reglas puras) y funciones de acceso a datos (consultas parametrizadas u ORM, RNF-20). Los adaptadores (almacenamiento, correo, IA) y el cliente interno se reciben como parámetro desde la librería compartida. El acceso a la base de cada servicio se limita con permisos IAM propios (DynamoDB) o credenciales propias guardadas como secreto (PostgreSQL); ningún servicio puede leer la base de otro.
 
 ### 2.6. Datos que no se guardan
 
 Se calculan al consultar: la edad del perro, la lista de recomendaciones (RN-47), la espera tras un rechazo (se calcula con `fecha_resolucion`) y los perfiles públicos (`adog_MER.md` §3).
+
+### 2.7. Datos y consistencia con una base por servicio
+
+- **Referencias entre servicios:** se guardan por identificador, sin clave foránea. El dato referenciado se pide al servicio dueño, en lote, al consultarlo.
+- **Datos replicados mínimos** (`adog_MER.md`): `id_publicador` en la solicitud de adopción y la marca `publicador_eliminado` en el perro.
+- **Sin transacciones entre servicios:** solo se garantizan transacciones dentro de la base de cada servicio. Las operaciones que cruzan servicios usan idempotencia y reintento (sección 8) y pueden dejar una inconsistencia temporal entre un paso y otro.
+- **Unicidad:** cada regla de unicidad vive en la base del servicio dueño (el correo en `Auth`; las pendientes en `Requests`). Entre servicios solo hay comprobaciones por llamada, con una carrera posible que se documenta en el flujo F1.
+- **DynamoDB:** el diseño de cada servicio parte de sus accesos; las claves e índices de las secciones 3.2, 5.2 y 6.2 son una **propuesta preliminar** que se confirma durante el incremento de cimientos. Las lecturas que sostienen una unicidad (candados) son fuertemente consistentes. Las claves llevan prefijo de tipo (por ejemplo `USER#`) y las expiraciones usan el TTL nativo.
 
 ---
 
@@ -109,6 +117,17 @@ Es dueño de **quién es cada usuario y qué puede hacer**: cuentas, credenciale
 | `TOKEN_CORREO`, `SESION` | Se guardan solo como hash. Los enlaces son de un solo uso (10 min; 24 h en la confirmación de registro) y las sesiones se cierran a los 30 min sin actividad. |
 
 Invariantes: todo usuario tiene exactamente un rol; el perfil corresponde al rol; siempre hay al menos un administrador activo (RN-11).
+
+**Almacenamiento (Amazon DynamoDB, una tabla `auth`).** Propuesta preliminar:
+
+| Elemento | Clave (PK / SK) | Contenido | Para qué |
+|---|---|---|---|
+| Usuario | `USER#id` / `PROFILE` | Correo, hash de la contraseña, correo confirmado, rol y su fecha de asignación, borrado lógico, fecha de registro y el perfil incrustado (persona o refugio). Reúne `USUARIO`, `USUARIO_ROL` y `PERSONA` o `REFUGIO`; `ROL` es un catálogo fijo de 4 valores en el código. | Lectura por id en una sola operación. |
+| Correo | `EMAIL#correo en minúsculas` / `OWNER` | Id del usuario. Se escribe en la misma transacción que el usuario, con la condición «no existe». | Unicidad del correo (también el de cuentas eliminadas, que no se libera). El cambio de correo mueve este elemento en una transacción. |
+| Enlace de correo | `TOKEN#hash` / `TOKEN` | Usuario, tipo, correo nuevo, fechas de creación, uso e invalidación; el TTL es la expiración. | Validar un enlace por su hash. El usuario guarda el hash vigente de cada tipo para invalidar el anterior al emitir uno nuevo. |
+| Sesión | `SESSION#hash` / `SESSION` | Usuario, fechas de creación, última actividad y cierre; el TTL limpia las expiradas. | Validar la sesión en cada petición. La última actividad se actualiza como máximo una vez por minuto para limitar las escrituras. |
+
+Índices secundarios: **GSI1** (`USER#id` / `SESSION#fecha`) para cerrar todas las sesiones de un usuario; **GSI2** (`ROL#rol` / nombre e id, solo cuentas activas) para los listados de rescatistas y refugios, la búsqueda del administrador por rol y el recuento de administradores activos (RN-11, con una carrera posible entre dos bajas simultáneas que se acepta). La búsqueda del administrador por nombre filtra sobre un volumen pequeño.
 
 ### 3.3. Operaciones públicas
 
@@ -175,13 +194,15 @@ Es dueño de **los perros y todo lo que los rodea**: publicación, fotos, estado
 | `RAZA`, `COLOR` | Catálogos; un valor en uso solo se desactiva. |
 | `FAVORITO` | Clave compuesta de usuario y perro; el usuario es una referencia lógica a `Auth`. |
 
-Un perro se oculta cuando su publicador es dado de baja (RN-16). Como `Dogs` no puede consultar a los usuarios, la baja lo comunica por la llamada interna y `Dogs` lo conserva como una marca propia (decisión abierta de la sección 9).
+Un perro se oculta cuando su publicador es dado de baja (RN-16). Como `Dogs` no puede consultar a los usuarios, `Auth` lo comunica por la llamada interna de baja o restauración y `Dogs` lo conserva como la marca `publicador_eliminado` (`adog_MER.md`, datos replicados).
+
+**Almacenamiento (PostgreSQL en Amazon Aurora Serverless).** Es el servicio relacional del sistema: conserva las tablas `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR` y `FAVORITO` con las claves foráneas y las restricciones `CHECK` y `UNIQUE` de `adog_MER.md` §4, **solo entre sus propias tablas**; `id_publicador` e `id_usuario` (favoritos) son referencias lógicas sin clave foránea. Los filtros del listado se apoyan en índices sobre el estado, la visibilidad (`eliminado` y `publicador_eliminado`), la fecha de publicación, la raza, el color, el tamaño, el género y el pelaje, y sobre el nombre. Tiene sus propias migraciones y credenciales.
 
 ### 4.3. Operaciones públicas
 
 | Método y ruta | RF | Quién | Qué hace y reglas principales |
 |---|---|---|---|
-| `GET /dogs` | RF-01 | Público | Lista los perros disponibles en tarjetas y los filtra por raza, edad, tamaño, género, pelaje, color, esterilizado, fecha de publicación y nombre. Excluye eliminados y perros de cuentas dadas de baja. |
+| `GET /dogs` | RF-01 | Público | Lista los perros disponibles en tarjetas y los filtra por raza, edad, tamaño, género, pelaje, color, esterilizado, fecha de publicación y nombre. Excluye los perros eliminados y los de cuentas dadas de baja (`publicador_eliminado`). |
 | `GET /dogs/{id}` | RF-02, RF-29 | Público; ADMINISTRADOR ve también eliminados | Ficha con fotos, datos físicos, información médica y publicador (pedido a `Auth`). Un adoptado se muestra con «Adoptado»; un eliminado o de una cuenta dada de baja responde 404. |
 | `POST /dogs` | RF-19 | Registrado | Publica el perro como disponible: valida los datos (peso de 0,5 a 90 kg; fecha de nacimiento no futura ni de más de 20 años), raza y color activos y fotos validadas por su contenido. Si falla el almacenamiento, no queda nada incompleto (RNF-11). |
 | `POST /dogs/{id}/photos` | RF-19, RF-20 | Publicador | Sube **una foto por petición**; valida contenido, genera el nombre, quita metadatos (RNF-22). |
@@ -199,11 +220,10 @@ Un perro se oculta cuando su publicador es dado de baja (RN-16). Como `Dogs` no 
 | Operación | La usa | Descripción |
 |---|---|---|
 | `consultarPerro` (en lote) | `Requests` | Datos y estado de varios perros; no devuelve eliminados. |
-| Perros de un publicador (solo ids) | `Requests` | Para que el publicador vea las solicitudes recibidas. |
 | Candidatos | `Recommendation` | Perros disponibles, no propios y compatibles con el filtro del test, con los atributos que usa la fórmula. |
 | `marcarAdoptado` | `Requests` | Marca adoptado, idempotente; con origen `Requests` no vuelve a llamarla. |
 | `listarPerrosDePublicador` | `Auth` | Perros visibles de un perfil público. No llama de vuelta a `Auth`. |
-| `darBajaCuenta` / `restaurarCuenta` | `Auth` | Oculta o muestra los perros de una cuenta. |
+| `darBajaCuenta` / `restaurarCuenta` | `Auth` | Activa o desactiva la marca `publicador_eliminado` de los perros de una cuenta. |
 
 ### 4.5. Llamadas que realiza
 
@@ -235,6 +255,17 @@ Es dueño de **las solicitudes que alguien resuelve**: las de adopción (el adop
 | `SOLICITUD_ADOPCION` | Estados pendiente, aceptada, rechazada y cancelada. El `mensaje` conserva el teléfono vigente al solicitar y no se actualiza (RN-30). |
 | `SOLICITUD_VERIFICACION` | Tipos rescatista y refugio, con las restricciones de coherencia de `solicitudes_verificacion.md` §2.4: una sola pendiente por rescatista y un solo correo pendiente por refugio (sin distinguir mayúsculas); al resolver un refugio se anulan `correo_solicitante` y `datos_registro`. |
 
+**Almacenamiento (Amazon DynamoDB, una tabla `requests`).** Propuesta preliminar:
+
+| Elemento | Clave (PK / SK) | Contenido | Para qué |
+|---|---|---|---|
+| Solicitud de adopción | `ADOPT#id` / `ADOPT` | Perro, **publicador (copia)**, solicitante, estado, mensaje y fechas. | Lectura y resolución por id. |
+| Candado de adopción | `PENDING#perro#solicitante` / `LOCK` | Id de la solicitud. Se crea con la solicitud en una transacción con la condición «no existe» y se borra al resolverla. | Una sola pendiente por perro y adoptante. |
+| Solicitud de verificación | `VERIF#id` / `VERIF` | Tipo, estado, usuario, correo y datos del formulario (solo refugio), administrador y fechas. Al resolver se quitan correo y datos. | Lectura y resolución por id. |
+| Candados de verificación | `PENDING#RESCUER#usuario` y `PENDING#SHELTER#correo en minúsculas` / `LOCK` | Id de la solicitud; se borran al resolver. | Una sola pendiente por rescatista y por correo de refugio; la lectura del candado responde `existeSolicitudRefugioPendiente`. |
+
+Índices secundarios: **GSI1** (`PERSONA#id` o `USER#id` / fecha) para el historial del adoptante y la última solicitud de un rescatista (espera de 5 minutos); **GSI2** (`PUB#publicador` / estado y fecha) para las solicitudes recibidas y la baja de una cuenta; **GSI3** (`DOG#perro` / estado y fecha) para rechazar las pendientes de un perro; **GSI4** (`VSTATE#PENDIENTE` / fecha, solo solicitudes pendientes) para la cola del administrador.
+
 ### 5.3. Operaciones públicas: módulo de adopción
 
 | Método y ruta | RF | Quién | Qué hace y reglas principales |
@@ -242,7 +273,7 @@ Es dueño de **las solicitudes que alguien resuelve**: las de adopción (el adop
 | `POST /requests/adoptions` | RF-16 | Adoptante | Con el id del perro y confirmación, crea una solicitud pendiente con el mensaje (nombre, teléfono vigente y enlace al perfil). El perro debe estar disponible y no ser propio; el solicitante no es REFUGIO y no tiene otra pendiente para ese perro. |
 | `GET /requests/adoptions/mine` | RF-17 | Adoptante | Historial con perro, fecha y estado. |
 | `POST /requests/adoptions/{id}/cancel` | RF-18 | Adoptante | Cancela una solicitud propia pendiente; si no lo está: «La solicitud ya no está pendiente y no puede cancelarse». |
-| `GET /requests/adoptions/received` | RF-22 | Publicador | Solicitudes de sus perros con mensaje, nombre, foto y contacto del interesado (obtiene sus perros de `Dogs` y los datos de los solicitantes de `Auth`). |
+| `GET /requests/adoptions/received` | RF-22 | Publicador | Solicitudes de sus perros con mensaje, nombre, foto y contacto del interesado (las encuentra por el `id_publicador` guardado en la solicitud y obtiene los datos de los solicitantes de `Auth` y de los perros de `Dogs`, en lote). |
 | `POST /requests/adoptions/{id}/accept` y `/reject` | RF-22 | Publicador del perro | Solo si está pendiente. Al aceptar, el perro pasa a adoptado y las demás pendientes se rechazan (flujo F4). Al rechazar, solo cambia esa solicitud. Sin comentario ni notificación. |
 
 ### 5.4. Operaciones públicas: módulo de verificación
@@ -268,7 +299,7 @@ Es dueño de **las solicitudes que alguien resuelve**: las de adopción (el adop
 | A | Para qué |
 |---|---|
 | `Auth` | Comprobar si un correo pertenece a una cuenta; cambiar el rol; crear la cuenta del refugio; obtener los datos de los solicitantes en lote. |
-| `Dogs` | Comprobar disponibilidad y propiedad del perro; marcarlo adoptado; obtener los datos de varios perros y los perros de un publicador. |
+| `Dogs` | Comprobar disponibilidad y propiedad del perro; marcarlo adoptado; obtener los datos de varios perros, en lote. |
 
 ### 5.7. Adaptadores y requisitos
 
@@ -291,6 +322,8 @@ Es dueño del **test de estilo de vida y de las recomendaciones**. Guarda las re
 | Entidad | Notas |
 |---|---|
 | `PERFIL_ADOPTANTE` | Respuestas del test de una persona (7 preguntas, con comentario opcional de hasta 150 caracteres). Se borra de forma definitiva (RN-53). `id_persona` es una referencia lógica a `Auth`. |
+
+**Almacenamiento (Amazon DynamoDB, una tabla `recommendation`).** Un solo elemento por persona: clave `PERSONA#id` / `TEST`, con las respuestas, el comentario y la fecha de actualización. Guardar o reemplazar es una escritura; borrar el test es una eliminación definitiva (RN-53). No necesita índices; las recomendaciones no se guardan (RN-47).
 
 ### 6.3. Operaciones públicas
 
@@ -334,7 +367,7 @@ Test incompleto; solo el dueño accede a su test; refugio rechazado; la respuest
 | `cambiarRol` | `Auth` | `Requests` | Sí | Clave: id de la solicitud |
 | `crearCuentaRefugio` | `Auth` | `Requests` | Sí | Clave: id de la solicitud |
 | `existeSolicitudRefugioPendiente` | `Requests` | `Auth` | No | — |
-| `consultarPerro` (lote, perros de un publicador, candidatos) | `Dogs` | `Requests`, `Recommendation` | No | — |
+| `consultarPerro` (lote, candidatos) | `Dogs` | `Requests`, `Recommendation` | No | — |
 | `marcarAdoptado` | `Dogs` | `Requests` | Sí | Clave: id de la solicitud |
 | `listarPerrosDePublicador` | `Dogs` | `Auth` | No | — |
 | `rechazarPendientesDelPerro` | `Requests` | `Dogs` | Sí | Clave: id del perro y motivo |
@@ -374,7 +407,7 @@ Cada flujo sigue la regla de la sección 2.4 (efecto en el servicio dueño prime
 
 ### F4. Aceptar una solicitud de adopción
 
-1. `Requests` comprueba que la solicitud siga pendiente y que quien acepta sea el publicador del perro (dato de `Dogs`).
+1. `Requests` comprueba que la solicitud siga pendiente y que quien acepta sea el publicador del perro (`id_publicador` guardado en la solicitud).
 2. `Requests` llama a `Dogs.marcarAdoptado` con origen `Requests`; `Dogs` no vuelve a llamar a `Requests`.
 3. `Requests` marca la solicitud como aceptada y **rechaza por sí mismo** las demás pendientes del perro.
 
@@ -410,14 +443,17 @@ La restauración hace lo inverso para los perros (mostrarlos) y no reabre las so
 
 ## 9. Decisiones abiertas
 
+Decididos con la base de datos por servicio: los dos datos replicados (`id_publicador` y `publicador_eliminado`, `adog_MER.md`) y el almacenamiento políglota.
+
 | # | Punto | Propuesta o consecuencia |
 |---|---|---|
-| 1 | Perros ocultos por la baja del publicador | El MER los trata como dato derivado, pero `Dogs` no puede consultar a los usuarios. Se propone que `Dogs` guarde una marca en `PERRO` (por ejemplo `publicador_eliminado`) que actualiza la llamada de baja o restauración. Requiere un ajuste a `adog_MER.md`. |
+| 1 | Motor relacional de `Dogs` y costo | Decidido el almacenamiento políglota (PostgreSQL para `Dogs`; DynamoDB para el resto). Falta fijar la configuración de costo mínimo de la base de `Dogs` (Aurora Serverless con o sin pausa u otra opción) y el presupuesto mensual de AWS (`adog_ARCH.md` §7). |
 | 2 | Quién envía cada correo | Propuesta del flujo F2: `Auth` envía el aviso con enlace de la aprobación de refugio; `Requests` envía los demás resultados. |
 | 3 | Solicitud de rescatista pendiente de una cuenta dada de baja | `solicitudes_verificacion.md` §8 (punto 3) la deja sin definir; hay que decidir si pasa a rechazada. |
 | 4 | Foto de la solicitud de refugio | La guarda `Requests` y la reutiliza `Auth` al crear el perfil; si se rechaza, queda sin referencia (aceptado en `solicitudes_verificacion.md`). |
 | 5 | Orden de las fotos al publicar | Crear el perro y luego subir las fotos una por una, o subirlas antes con clave temporal; se fija en el contrato de `Dogs`. |
-| 6 | Valores finales | Tiempos límite internos, de la IA y de cada Lambda, tamaño máximo por foto y transporte de la sesión (`adog_ARCH.md` §7). |
+| 6 | Diseño de DynamoDB | Las claves e índices de las secciones 3.2, 5.2 y 6.2 son preliminares; se confirman con los patrones de acceso reales durante el incremento de cimientos. |
+| 7 | Valores finales | Tiempos límite internos, de la IA y de cada Lambda, tamaño máximo por foto y transporte de la sesión (`adog_ARCH.md` §7). |
 
 ---
 

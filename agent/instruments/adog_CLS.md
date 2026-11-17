@@ -37,7 +37,7 @@ Decisiones de modelado:
 - **Catálogos:** `Raza` y `Color` comparten comportamiento en `ValorCatalogo` (renombrar, activar, desactivar, saber si están en uso; RN-26, RN-27).
 - **Operaciones de creación (`$`):** los datos con reglas de creación (`registrar`, `publicar`, `crear`, etc.) se obtienen con una función que valida la regla y devuelve el dato o un error, evitando estados inválidos.
 - **Interfaces para integraciones:** el negocio depende de `IServicioIA`, `IServicioCorreo` e `IAlmacenamientoImagenes` (tipos de contrato), nunca de AWS ni del proveedor de IA (RNF-13). La implementación se pasa como parámetro a las funciones que la necesitan.
-- **Datos derivados:** la edad del perro (`calcularEdad`), su visibilidad (`estaVisible`) y la lista de recomendaciones no se guardan (ver MER §3).
+- **Datos derivados:** la edad del perro (`calcularEdad`), su visibilidad (`estaVisible`) y la lista de recomendaciones no se guardan (ver MER §3). Lo que **sí se guarda** por tener una base por servicio: `Perro.publicadorEliminado` y `SolicitudAdopcion.idPublicador` (`adog_MER.md`, datos replicados).
 
 ---
 
@@ -212,6 +212,7 @@ classDiagram
         -fechaPublicacion: Date
         -eliminado: boolean
         -fechaEliminacion: Date
+        -publicadorEliminado: boolean
         +publicar(publicador: Usuario, datos: DatosPerro, fotos: Imagen[])$ Perro
         +editar(datos: DatosPerro) void
         +marcarAdoptado() void
@@ -253,6 +254,7 @@ classDiagram
         -idSolicitud: UUID
         -estado: EstadoSolicitud
         -mensaje: string
+        -idPublicador: UUID
         -fechaSolicitud: Date
         -fechaResolucion: Date
         +crear(adoptante: Persona, perro: Perro)$ SolicitudAdopcion
@@ -428,8 +430,8 @@ Como no se usarán clases reales, las operaciones de las clases más importantes
 | `marcarAdoptado` (`Perro`) | perro, publicador | Perro adoptado y solicitudes pendientes rechazadas | Solo el publicador; puede hacerse sin solicitud aceptada. | RF-23 |
 | `marcarDisponible` (`Perro`) | perro, publicador | Perro disponible | Conserva la fecha de publicación; las solicitudes aceptadas se mantienen. | RF-23 |
 | `eliminar` (`Perro`) | perro, publicador o administrador | Perro con borrado lógico | Pide confirmación; rechaza las solicitudes pendientes sin motivo ni aviso. | RF-21, RF-29; RNF-10 |
-| `calcularEdad` / `estaVisible` (`Perro`) | perro, fecha actual | edad / verdadero o falso | Valores derivados, no se guardan; oculto si el perro o su publicador fueron eliminados (responde 404). | RF-02; RNF-07 |
-| `crear` (`SolicitudAdopcion`) | adoptante, perro | Solicitud pendiente con mensaje generado | Perro disponible y no propio; el adoptante no es refugio ni tiene otra pendiente para ese perro; el mensaje lleva nombre, teléfono vigente y enlace. | RF-16 |
+| `calcularEdad` / `estaVisible` (`Perro`) | perro, fecha actual | edad / verdadero o falso | La edad es derivada y no se guarda; el perro está oculto si fue eliminado o si `publicadorEliminado` es verdadero (responde 404). | RF-02; RNF-07 |
+| `crear` (`SolicitudAdopcion`) | adoptante, perro | Solicitud pendiente con mensaje generado | Perro disponible y no propio; el adoptante no es refugio ni tiene otra pendiente para ese perro; el mensaje lleva nombre, teléfono vigente y enlace; guarda `idPublicador` tomado del perro. | RF-16 |
 | `aceptar` / `rechazar` (`SolicitudAdopcion`) | solicitud, publicador | Solicitud resuelta (al aceptar, el perro pasa a adoptado y las demás pendientes se rechazan) | Solo el publicador y solo si está pendiente. | RF-18, RF-22 |
 | `cancelar` (`SolicitudAdopcion`) | solicitud, adoptante | Solicitud cancelada | Solo si sigue pendiente: «La solicitud ya no está pendiente y no puede cancelarse». | RF-17 |
 | `rechazarPorSistema` (`SolicitudAdopcion`) | solicitud | Solicitud rechazada | Se invoca al adoptar o eliminar un perro o una cuenta. | RF-21, RF-23, RF-28 |
@@ -461,10 +463,10 @@ Son funciones del cliente interno de la librería compartida (síncronas, con *t
 | `existeSolicitudRefugioPendiente` | `Requests` | `Auth` | correo | verdadero o falso | Sin distinguir mayúsculas; reserva el correo en registro, creación de usuarios y cambio de correo. |
 | `cambiarRol` | `Auth` | `Requests` | id de usuario, rol, id de solicitud | usuario actualizado | Idempotente por id de solicitud; solo de MIEMBRO a RESCATISTA. |
 | `crearCuentaRefugio` | `Auth` | `Requests` | datos del refugio, correo, id de solicitud | cuenta creada con su enlace para definir contraseña | Idempotente por id de solicitud; correo confirmado, sin contraseña, rol REFUGIO. |
-| `consultarPerro` | `Dogs` | `Requests`, `Recommendation` | ids de perro, en lote (o criterios y límite, para candidatos; o id de publicador, para sus perros) | datos y estado de los perros (o lista de candidatos, o ids del publicador) | No devuelve eliminados ni de cuentas eliminadas (404, RNF-07). |
+| `consultarPerro` | `Dogs` | `Requests`, `Recommendation` | ids de perro, en lote (o criterios y límite, para candidatos) | datos y estado de los perros (o lista de candidatos) | No devuelve eliminados ni de cuentas eliminadas (404, RNF-07). |
 | `marcarAdoptado` | `Dogs` | `Requests` | id de perro, origen | perro adoptado | Con origen `Requests` no vuelve a llamar a `Requests`. |
 | `rechazarPendientesDelPerro` | `Requests` | `Dogs` | id de perro, motivo (adoptado o eliminado) | cantidad rechazada | Idempotente; sin motivo ni aviso al adoptante. |
-| `darBajaCuenta` / `restaurarCuenta` | `Dogs`, `Requests`, `Recommendation` | `Auth` | id de usuario | ok | `Dogs` oculta o muestra sus perros; `Requests` rechaza sus pendientes; `Recommendation` borra su test. Al restaurar no se reabren. |
+| `darBajaCuenta` / `restaurarCuenta` | `Dogs`, `Requests`, `Recommendation` | `Auth` | id de usuario | ok | `Dogs` activa o desactiva la marca `publicadorEliminado` de sus perros; `Requests` rechaza sus pendientes (por `idPublicador` y por solicitante); `Recommendation` borra su test. Al restaurar no se reabren. |
 | `listarPerrosDePublicador` | `Dogs` | `Auth` | id de usuario | perros visibles | Para el perfil público (RF-03). No llama de vuelta a `Auth`. |
 
 ---
@@ -476,7 +478,7 @@ Para no recargar los diagramas, estos elementos se introducen al construir:
 | Tipo | Rol | Ejemplos |
 |---|---|---|
 | Servicios de aplicación (módulos de funciones) | Uno por microservicio de `adog_ARCH.md` (`Requests` con dos módulos: adopción y verificación); orquestan las funciones de dominio, autorizan por rol y propiedad del recurso (RNF-04), llaman a otros servicios con el cliente interno y controlan la transacción dentro de su esquema. | `Auth`, `Dogs`, `Requests`, `Recommendation` |
-| Funciones de acceso a datos | Leen y escriben en la base de datos con consultas parametrizadas u ORM (RNF-20); devuelven datos de dominio. | `buscarUsuarioPorCorreo`, `guardarPerro`, `listarSolicitudesPendientes` |
+| Funciones de acceso a datos | Leen y escriben en la base de datos **propia del servicio** (PostgreSQL en `Dogs`; DynamoDB en los demás) con consultas parametrizadas u ORM, o expresiones con valores enlazados (RNF-20); devuelven datos de dominio. | `buscarUsuarioPorCorreo`, `guardarPerro`, `listarSolicitudesPendientes` |
 | Tipos de transferencia | Datos de entrada y salida de la API, ya validados y sanitizados (RNF-21). | `DatosPerro`, `DatosPerfil`, `DatosRefugio`, `RespuestasTest`, `PerfilIA`, `CandidatoIA`, `RespuestaIA`, `Imagen`, `Contacto` |
 | Manejadores | Punto de entrada de cada función Lambda; traducen la petición HTTP al servicio correspondiente. | manejador de perros, manejador de adopción |
 

@@ -1,7 +1,7 @@
 # ADOGTAME — Modelo entidad-relación
 
 > **Derivado de:** ERS v2.1.0 (13/11/2026): requisitos funcionales (§6), reglas de negocio (§5) y requisitos no funcionales (§7), y de `adog_REC.md` §10 (datos del test). Si este documento y el ERS difieren, prevalece el ERS y este debe actualizarse.
-> Describe **qué datos** conserva el sistema y cómo se relacionan: las 15 entidades, sus atributos y un diccionario de datos. Los detalles de implementación (índices, restricciones técnicas y script de base de datos) se desarrollan en el script DBML. Material de apoyo en `support/dev/`: `solicitudes_verificacion.md` (cómo se manejan las solicitudes de rescatista y de refugio) y `manejo_roles.md` (roles y acciones de cada tipo de usuario).
+> Describe **qué datos** conserva el sistema y cómo se relacionan: las 15 entidades, sus atributos y un diccionario de datos. Es el **modelo conceptual global**: el sistema usa una base de datos por microservicio (ver «Propiedad de los datos por microservicio»), y cada servicio materializa sus entidades en su propio motor (`adog_ARCH.md` §3.6 y `adog_MS.md`). Los detalles de implementación (índices, restricciones técnicas y script de base de datos) se desarrollan en el script DBML. Material de apoyo en `support/dev/`: `solicitudes_verificacion.md` (cómo se manejan las solicitudes de rescatista y de refugio) y `manejo_roles.md` (roles y acciones de cada tipo de usuario).
 > Convenciones: los tipos de dato son **orientativos** e independientes del motor de base de datos. Los atributos entre comillas del diagrama resumen la regla de cada campo; el diccionario (sección 4) los detalla.
 
 ---
@@ -139,6 +139,7 @@ erDiagram
         TIMESTAMP fecha_publicacion
         BOOLEAN eliminado
         TIMESTAMP fecha_eliminacion
+        BOOLEAN publicador_eliminado "copia de la baja del publicador, la actualiza Auth"
     }
     FOTO_PERRO {
         UUID id_foto PK
@@ -154,6 +155,7 @@ erDiagram
     SOLICITUD_ADOPCION {
         UUID id_solicitud PK
         UUID id_perro FK
+        UUID id_publicador "copia de PERRO.id_publicador al solicitar"
         UUID id_solicitante FK "PERSONA.id_persona"
         ENUM estado "pendiente, aceptada, rechazada, cancelada"
         TEXT mensaje "generado al solicitar"
@@ -186,27 +188,33 @@ erDiagram
 
 ### Propiedad de los datos por microservicio
 
-Cada entidad pertenece al esquema de un único microservicio (ver `adog_ARCH.md` §1 y §3). Las tablas están en **una sola instancia de base de datos**, pero **no hay claves foráneas ni JOIN entre esquemas**.
+Cada microservicio es **dueño de sus datos**: tiene **su propia base de datos** y es el único que la lee y escribe (ver `adog_ARCH.md` §1 y §3.6). No hay claves foráneas, JOIN ni transacciones entre bases. El almacenamiento es políglota:
 
-| Microservicio (esquema) | Entidades |
-|---|---|
-| `Auth` (`auth`) | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` |
-| `Dogs` (`dogs`) | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` |
-| `Requests` (`requests`) | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` |
-| `Recommendation` (`recommendation`) | `PERFIL_ADOPTANTE` |
+| Microservicio | Almacén | Entidades |
+|---|---|---|
+| `Auth` | Amazon DynamoDB | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` |
+| `Dogs` | PostgreSQL (Amazon Aurora Serverless), relacional | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` |
+| `Requests` | Amazon DynamoDB | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` |
+| `Recommendation` | Amazon DynamoDB | `PERFIL_ADOPTANTE` |
 
-Las relaciones del diagrama que cruzan de un esquema a otro se tratan como **referencias lógicas** (el identificador se guarda, pero la integridad la controla la aplicación y no la base de datos):
+Este documento es el modelo **conceptual** y global. La implementación relacional (restricciones `CHECK`, `UNIQUE` y claves foráneas del diccionario) aplica a `Dogs`; en los servicios con DynamoDB las mismas reglas se garantizan con escrituras condicionales, transacciones dentro de la misma tabla y validación en el servicio. Las entidades se agrupan o se incrustan según los accesos de cada servicio (por ejemplo `USUARIO`, `USUARIO_ROL`, `PERSONA` o `REFUGIO` en un mismo registro de `Auth`); esa correspondencia está en `adog_MS.md`.
+
+Las relaciones del diagrama que cruzan de una base a otra se tratan como **referencias lógicas**: el identificador se guarda, pero la integridad la controla la aplicación y no la base de datos. El dato referenciado se pide al servicio dueño, en lote, al consultarlo.
 
 | Referencia lógica | Desde | Hacia |
 |---|---|---|
 | `PERRO.id_publicador` | `Dogs` | `USUARIO` (`Auth`) |
 | `FAVORITO.id_usuario` | `Dogs` | `USUARIO` (`Auth`) |
 | `SOLICITUD_ADOPCION.id_solicitante` | `Requests` | `PERSONA` (`Auth`) |
-| `SOLICITUD_ADOPCION.id_perro` | `Requests` | `PERRO` (`Dogs`) |
+| `SOLICITUD_ADOPCION.id_perro` y `id_publicador` | `Requests` | `PERRO` y `USUARIO` (`Dogs`, `Auth`) |
 | `SOLICITUD_VERIFICACION.id_usuario` e `id_admin_revisor` | `Requests` | `USUARIO` (`Auth`) |
 | `PERFIL_ADOPTANTE.id_persona` | `Recommendation` | `PERSONA` (`Auth`) |
 
-Como los usuarios y los perros nunca se borran físicamente (RNF-10), estas referencias no quedan huérfanas. Las restricciones `CHECK` y `UNIQUE` dentro de cada esquema se mantienen como están en el diccionario (sección 4).
+Como los usuarios y los perros nunca se borran físicamente (RNF-10), estas referencias no quedan huérfanas.
+
+**Datos replicados (decisión de diseño):** dos datos se copian entre bases para no acoplar los servicios en cada consulta:
+- `SOLICITUD_ADOPCION.id_publicador`: copia inmutable del publicador del perro, tomada al crear la solicitud (el publicador de un perro no cambia). Permite que `Requests` liste las solicitudes recibidas por un publicador y las rechace cuando se da de baja su cuenta, sin consultar a `Dogs`.
+- `PERRO.publicador_eliminado`: marca que `Auth` actualiza (mediante la llamada de baja o de restauración de cuenta) cuando se elimina o restaura al publicador. Permite que `Dogs` oculte los perros de una cuenta eliminada sin consultar a `Auth` en cada listado.
 
 ---
 
@@ -216,7 +224,7 @@ Como los usuarios y los perros nunca se borran físicamente (RNF-10), estas refe
 - **Borrado lógico (RNF-10):** los usuarios y los perros nunca se eliminan físicamente; se marcan con `eliminado` y `fecha_eliminacion`. Excepciones: el test (`PERFIL_ADOPTANTE`) se borra de forma definitiva (RN-53) y los valores de catálogo sin uso pueden eliminarse (RN-27).
 - **Rol y perfil:** cada usuario tiene un solo rol. Los roles MIEMBRO, RESCATISTA y ADMINISTRADOR tienen una fila en `PERSONA`; el rol REFUGIO tiene una en `REFUGIO`. Esto lo controla la aplicación (ver `manejo_roles.md`).
 - **Solicitudes de refugio:** se guardan sin cuenta asociada; sus datos viven en `datos_registro` hasta que se resuelven (ver `solicitudes_verificacion.md`).
-- **Valores derivados que no se guardan:** la edad del perro, la lista de recomendaciones (RN-47), la espera tras un rechazo (se calcula con `fecha_resolucion`) y si un perro está oculto por la eliminación de su publicador.
+- **Valores derivados que no se guardan:** la edad del perro, la lista de recomendaciones (RN-47) y la espera tras un rechazo (se calcula con `fecha_resolucion`). Si un perro está oculto por la eliminación de su publicador **sí se guarda**, en `PERRO.publicador_eliminado`, porque `Dogs` no puede consultar a los usuarios.
 - **Texto de las solicitudes de adopción:** `mensaje` conserva el teléfono vigente al solicitar (RN-30); no se actualiza después.
 
 ---
@@ -315,6 +323,7 @@ Las restricciones usan: **PK** (clave primaria), **FK** (clave foránea, con su 
 | PERRO | fecha_publicacion | TIMESTAMP | NOT NULL | Fecha de publicación; se conserva al volver a disponible |
 | PERRO | eliminado | BOOLEAN | NOT NULL, DEFAULT false | Marca de borrado lógico |
 | PERRO | fecha_eliminacion | TIMESTAMP | NULL | Fecha del borrado lógico |
+| PERRO | publicador_eliminado | BOOLEAN | NOT NULL, DEFAULT false | Copia de la baja del publicador; la actualiza `Auth` al eliminar o restaurar la cuenta. Oculta el perro (404) mientras es verdadera |
 | FOTO_PERRO | id_foto | UUID | PK | Identificador de la foto |
 | FOTO_PERRO | id_perro | UUID | FK, NOT NULL | Perro al que pertenece |
 | FOTO_PERRO | clave_almacenamiento | VARCHAR(255) | NOT NULL | Nombre generado del archivo en el almacenamiento |
@@ -323,7 +332,8 @@ Las restricciones usan: **PK** (clave primaria), **FK** (clave foránea, con su 
 | FAVORITO | id_perro | UUID | PK, FK | Perro marcado |
 | FAVORITO | fecha | TIMESTAMP | NOT NULL | Fecha en que se marcó |
 | SOLICITUD_ADOPCION | id_solicitud | UUID | PK | Identificador de la solicitud |
-| SOLICITUD_ADOPCION | id_perro | UUID | FK, NOT NULL | Perro solicitado |
+| SOLICITUD_ADOPCION | id_perro | UUID | NOT NULL | Perro solicitado (referencia lógica a `Dogs`) |
+| SOLICITUD_ADOPCION | id_publicador | UUID | NOT NULL | Publicador del perro al solicitar (copia inmutable de `PERRO.id_publicador`) |
 | SOLICITUD_ADOPCION | id_solicitante | UUID | FK, NOT NULL | Persona que solicita |
 | SOLICITUD_ADOPCION | estado | ENUM('pendiente','aceptada','rechazada','cancelada') | NOT NULL, DEFAULT 'pendiente' | Estado de la solicitud |
 | SOLICITUD_ADOPCION | mensaje | TEXT | NOT NULL | Mensaje generado al solicitar (nombre, teléfono y enlace) |
