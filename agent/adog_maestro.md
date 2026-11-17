@@ -54,3 +54,16 @@ Resume los 25 requisitos no funcionales (RNF-01 a RNF-25) agrupados por tipo (re
 **Archivo:** `adog_MER.md`
 
 Describe los datos que conserva el sistema: el diagrama de las 15 entidades con sus atributos y relaciones, la trazabilidad de cada entidad con los requisitos y reglas, las convenciones del modelo y un diccionario de datos con el tipo, la restricción y la descripción de cada campo.
+
+### 3.2. Arquitectura
+
+**Archivo:** `adog_ARCH.md`
+
+Describe cómo se organiza el sistema: el estilo de tres capas desplegado en AWS serverless con lógica funcional, el diagrama de componentes (presentación, entrega y perímetro, negocio por servicios en funciones Lambda, adaptadores, datos y servicios externos), la responsabilidad y los requisitos de cada componente, las decisiones de diseño trazadas con los RNF y los controles de seguridad por capa.
+
+### 3.3. Clases
+
+**Archivo:** `adog_CLS.md`
+
+Presenta el modelo conceptual preliminar del servidor en tres diagramas de clases (cuentas y verificación; perros y adopción; recomendación e integración), con atributos, operaciones, herencias, interfaces de los adaptadores y su trazabilidad con las entidades del MER junto los requisitos. Como el sistema se implementa con programación funcional y no con clases reales, especifica además las funciones principales (entradas, salida y reglas), los módulos de apoyo que se definirán al construir y las observaciones para la construcción.
+
