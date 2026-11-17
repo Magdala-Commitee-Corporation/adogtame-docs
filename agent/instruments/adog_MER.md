@@ -184,6 +184,30 @@ erDiagram
 | `FAVORITO` | Perros marcados como favoritos por cada usuario | RF-12, RF-33; RN-19 |
 | `SOLICITUD_ADOPCION` | Solicitudes de adopción de un perro | RF-16, RF-17, RF-18, RF-22; RN-28 a RN-34 |
 
+### Propiedad de los datos por microservicio
+
+Cada entidad pertenece al esquema de un único microservicio (ver `adog_ARCH.md` §1 y §3). Las tablas están en **una sola instancia de base de datos**, pero **no hay claves foráneas ni JOIN entre esquemas**.
+
+| Microservicio (esquema) | Entidades |
+|---|---|
+| `Auth` (`auth`) | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` |
+| `Dogs` (`dogs`) | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` |
+| `Requests` (`requests`) | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` |
+| `Recommendation` (`recommendation`) | `PERFIL_ADOPTANTE` |
+
+Las relaciones del diagrama que cruzan de un esquema a otro se tratan como **referencias lógicas** (el identificador se guarda, pero la integridad la controla la aplicación y no la base de datos):
+
+| Referencia lógica | Desde | Hacia |
+|---|---|---|
+| `PERRO.id_publicador` | `Dogs` | `USUARIO` (`Auth`) |
+| `FAVORITO.id_usuario` | `Dogs` | `USUARIO` (`Auth`) |
+| `SOLICITUD_ADOPCION.id_solicitante` | `Requests` | `PERSONA` (`Auth`) |
+| `SOLICITUD_ADOPCION.id_perro` | `Requests` | `PERRO` (`Dogs`) |
+| `SOLICITUD_VERIFICACION.id_usuario` e `id_admin_revisor` | `Requests` | `USUARIO` (`Auth`) |
+| `PERFIL_ADOPTANTE.id_persona` | `Recommendation` | `PERSONA` (`Auth`) |
+
+Como los usuarios y los perros nunca se borran físicamente (RNF-10), estas referencias no quedan huérfanas. Las restricciones `CHECK` y `UNIQUE` dentro de cada esquema se mantienen como están en el diccionario (sección 4).
+
 ---
 
 ## 3. Convenciones del modelo

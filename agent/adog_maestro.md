@@ -53,7 +53,7 @@ Resume los 25 requisitos no funcionales (RNF-01 a RNF-25) agrupados por tipo (re
 
 **Archivo:** `adog_MER.md`
 
-Describe los datos que conserva el sistema: el diagrama de las 15 entidades con sus atributos y relaciones, la trazabilidad de cada entidad con los requisitos y reglas, las convenciones del modelo y un diccionario de datos con el tipo, la restricción y la descripción de cada campo.
+Describe los datos que conserva el sistema: el diagrama de las 15 entidades con sus atributos y relaciones, la trazabilidad de cada entidad con los requisitos y reglas, la propiedad de cada entidad por microservicio y las referencias lógicas entre ellos, las convenciones del modelo y un diccionario de datos con el tipo, la restricción y la descripción de cada campo.
 
 ### 3.2. Arquitectura
 
@@ -67,3 +67,17 @@ Describe cómo se organiza el sistema: el estilo de tres capas desplegado en AWS
 
 Presenta el modelo conceptual preliminar del servidor en tres diagramas de clases (cuentas y verificación; perros y adopción; recomendación e integración), con atributos, operaciones, herencias, interfaces de los adaptadores y su trazabilidad con las entidades del MER junto los requisitos. Como el sistema se implementa con programación funcional y no con clases reales, especifica además las funciones principales (entradas, salida y reglas), los módulos de apoyo que se definirán al construir y las observaciones para la construcción.
 
+
+### 3.4. Microservicios
+
+**Archivo:** `adog_MS.md`
+
+Describe cada uno de los 4 microservicios (`Auth`, `Dogs`, `Requests` y `Recommendation`): su propósito y límites, los datos que posee, las operaciones públicas con su ruta, requisito, rol autorizado y reglas, las operaciones internas que expone, las llamadas que realiza, los adaptadores que usa y las pruebas clave. Incluye las convenciones comunes (identidad de la petición, contrato de errores y llamadas internas), el catálogo de llamadas entre servicios, los flujos que cruzan servicios con su manejo de fallos (aprobación de refugio y de rescatista, aceptación de solicitudes, baja de cuentas y generación de recomendaciones), las decisiones abiertas y la trazabilidad con los requisitos funcionales.
+
+## 4. Planificación
+
+### 4.1. Plan de desarrollo
+
+**Archivo:** `Adogtame_planificacion.xlsx`.
+
+Planifica la construcción completa del sistema con RAD incremental y timeboxing, para dos integrantes, del 16/11/2026 al 15/01/2027 (con 15 días de reserva posteriores). Contiene los parámetros de capacidad, las 34 historias de usuario (una por requisito funcional) con criterios de aceptación y los habilitadores técnicos, el cronograma por incremento (cimientos, cuentas y catálogo, solicitudes, test y recomendación, y cierre) con demos y retrospectivas, la capacidad frente a la carga, la matriz RACI, los riesgos, la Definición de Hecho con el plan de pruebas y la trazabilidad de los RF y RNF. Se apoya en los instrumentos de análisis y diseño de este documento; si difieren, prevalecen estos.

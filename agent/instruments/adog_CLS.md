@@ -17,13 +17,18 @@
 | Justificación | Aunque en el código no existirán clases, el diagrama ordena las reglas de negocio por concepto: cada operación es una función por especificar y cada atributo un campo de un tipo de dato. Reutiliza los nombres del MER para mantener la trazabilidad. |
 | Imagen | Los diagramas completos están en los bloques Mermaid de las secciones 2 a 4. |
 
-El modelo se divide en tres bloques, que coinciden con los servicios de `adog_ARCH.md` §3.3:
+El modelo se divide en tres bloques (diagramas), y cada clase pertenece a uno de los 4 microservicios de `adog_ARCH.md` §3:
 
-| Bloque | Clases | Servicios de la arquitectura |
+| Bloque | Clases | Microservicio |
 |---|---|---|
-| Cuentas y verificación | `Usuario`, `Rol`, `Perfil`, `Persona`, `Refugio`, `TokenCorreo`, `Sesion`, `SolicitudVerificacion` | Autenticación y sesiones, Usuarios y perfiles, Verificación |
-| Perros y adopción | `Perro`, `FotoPerro`, `ValorCatalogo` (`Raza`, `Color`), `Favorito`, `SolicitudAdopcion` | Perros, catálogos y favoritos; Adopción |
-| Recomendación e integración | `PerfilAdoptante`, `Recomendador`, `Recomendacion` y las interfaces `IServicioIA`, `IServicioCorreo`, `IAlmacenamientoImagenes` con sus implementaciones | Recomendación y capa de adaptadores (RNF-13) |
+| Cuentas y verificación | `Usuario`, `Rol`, `Perfil`, `Persona`, `Refugio`, `TokenCorreo`, `Sesion` | `Auth` |
+| | `SolicitudVerificacion` | `Requests` (módulo de verificación) |
+| Perros y adopción | `Perro`, `FotoPerro`, `ValorCatalogo` (`Raza`, `Color`), `Favorito` | `Dogs` |
+| | `SolicitudAdopcion` | `Requests` (módulo de adopción) |
+| Recomendación e integración | `PerfilAdoptante`, `Recomendador`, `Recomendacion` | `Recommendation` |
+| | Interfaces `IServicioIA`, `IServicioCorreo`, `IAlmacenamientoImagenes` con sus implementaciones | Librería compartida (adaptadores, RNF-13) |
+
+Las asociaciones de los diagramas que cruzan de un microservicio a otro (`Usuario` publica `Perro`, `Persona` envía `SolicitudAdopcion`, `SolicitudAdopcion` solicita `Perro`, `Favorito` con `Usuario`, `SolicitudVerificacion` con `Usuario` y `Persona`, `Persona` con `PerfilAdoptante`, `Recomendador` evalúa `Perro`) son **referencias lógicas por identificador**: el servicio guarda el id y obtiene los datos del otro servicio mediante una llamada síncrona (sección 5.5), sin JOIN.
 
 Decisiones de modelado:
 
@@ -443,6 +448,25 @@ Como no se usarán clases reales, las operaciones de las clases más importantes
 
 > Los detalles de la fórmula, el prompt y las plantillas están en `adog_REC.md`.
 
+### 5.5. Llamadas entre microservicios
+
+Son funciones del cliente interno de la librería compartida (síncronas, con *timeout*; las escrituras llevan clave de idempotencia). Los nombres son orientativos y los contratos se fijan en el incremento de cimientos (`adog_ARCH.md` §3.2 y §4).
+
+| Función | Servicio que la expone | La usa | Entradas | Salida | Reglas principales |
+|---|---|---|---|---|---|
+| `validarSesion` | `Auth` | Todos (autorizador) | token de sesión | usuario y rol, o error | Actualiza `ultimaActividad`; rechaza sesiones expiradas o de cuentas eliminadas. |
+| `obtenerPublicadores` | `Auth` | `Dogs` | ids de usuario | nombre, tipo de cuenta y verificación (y contacto si hay sesión) | Pedido en lote; oculta el contacto al visitante (RF-04). |
+| `obtenerContactoSolicitante` | `Auth` | `Requests` | ids de persona (en lote) | nombre, foto, teléfono y correo vigentes | Para el mensaje (RN-30) y el panel del publicador. |
+| `existeCuentaConCorreo` | `Auth` | `Requests` | correo | verdadero o falso | Incluye cuentas eliminadas (RN-01). |
+| `existeSolicitudRefugioPendiente` | `Requests` | `Auth` | correo | verdadero o falso | Sin distinguir mayúsculas; reserva el correo en registro, creación de usuarios y cambio de correo. |
+| `cambiarRol` | `Auth` | `Requests` | id de usuario, rol, id de solicitud | usuario actualizado | Idempotente por id de solicitud; solo de MIEMBRO a RESCATISTA. |
+| `crearCuentaRefugio` | `Auth` | `Requests` | datos del refugio, correo, id de solicitud | cuenta creada con su enlace para definir contraseña | Idempotente por id de solicitud; correo confirmado, sin contraseña, rol REFUGIO. |
+| `consultarPerro` | `Dogs` | `Requests`, `Recommendation` | ids de perro, en lote (o criterios y límite, para candidatos; o id de publicador, para sus perros) | datos y estado de los perros (o lista de candidatos, o ids del publicador) | No devuelve eliminados ni de cuentas eliminadas (404, RNF-07). |
+| `marcarAdoptado` | `Dogs` | `Requests` | id de perro, origen | perro adoptado | Con origen `Requests` no vuelve a llamar a `Requests`. |
+| `rechazarPendientesDelPerro` | `Requests` | `Dogs` | id de perro, motivo (adoptado o eliminado) | cantidad rechazada | Idempotente; sin motivo ni aviso al adoptante. |
+| `darBajaCuenta` / `restaurarCuenta` | `Dogs`, `Requests`, `Recommendation` | `Auth` | id de usuario | ok | `Dogs` oculta o muestra sus perros; `Requests` rechaza sus pendientes; `Recommendation` borra su test. Al restaurar no se reabren. |
+| `listarPerrosDePublicador` | `Dogs` | `Auth` | id de usuario | perros visibles | Para el perfil público (RF-03). No llama de vuelta a `Auth`. |
+
 ---
 
 ## 6. Módulos de apoyo y observaciones para la construcción
@@ -451,7 +475,7 @@ Para no recargar los diagramas, estos elementos se introducen al construir:
 
 | Tipo | Rol | Ejemplos |
 |---|---|---|
-| Servicios de aplicación (módulos de funciones) | Uno por dominio de `adog_ARCH.md`; orquestan las funciones de dominio, autorizan por rol y propiedad del recurso (RNF-04) y controlan la transacción. | autenticación, perros, adopción, recomendación |
+| Servicios de aplicación (módulos de funciones) | Uno por microservicio de `adog_ARCH.md` (`Requests` con dos módulos: adopción y verificación); orquestan las funciones de dominio, autorizan por rol y propiedad del recurso (RNF-04), llaman a otros servicios con el cliente interno y controlan la transacción dentro de su esquema. | `Auth`, `Dogs`, `Requests`, `Recommendation` |
 | Funciones de acceso a datos | Leen y escriben en la base de datos con consultas parametrizadas u ORM (RNF-20); devuelven datos de dominio. | `buscarUsuarioPorCorreo`, `guardarPerro`, `listarSolicitudesPendientes` |
 | Tipos de transferencia | Datos de entrada y salida de la API, ya validados y sanitizados (RNF-21). | `DatosPerro`, `DatosPerfil`, `DatosRefugio`, `RespuestasTest`, `PerfilIA`, `CandidatoIA`, `RespuestaIA`, `Imagen`, `Contacto` |
 | Manejadores | Punto de entrada de cada función Lambda; traducen la petición HTTP al servicio correspondiente. | manejador de perros, manejador de adopción |
