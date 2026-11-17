@@ -1,20 +1,41 @@
 // =============================================================================
-// ADOGTAME - Especificacion DBML del esquema relacional (v2)
+// ADOGTAME - Especificacion DBML del modelo de datos (v2, una base por servicio)
 // -----------------------------------------------------------------------------
-// Deriva de: instruments/adog_MER.md (diagrama y diccionario de datos).
+// Deriva de: instruments/adog_MER.md (diagrama y diccionario de datos),
+//            instruments/adog_ARCH.md (seccion 3.6) e instruments/adog_MS.md.
 // Apoyo:     support/dev/solicitudes_verificacion.md y support/dev/manejo_roles.md.
 //
-// Sirve como REFERENCIA para pasar el modelo a una base de datos concreta. Es
-// independiente del motor. Convenciones de esta especificacion:
+// Cada microservicio es dueno de sus datos y tiene su PROPIA base de datos
+// (almacenamiento poliglota). Este archivo agrupa las tablas por servicio:
+//
+//  - dogs            -> PostgreSQL (Amazon Aurora Serverless). UNICO esquema
+//                       RELACIONAL: es la especificacion a implementar.
+//  - auth            -> Amazon DynamoDB. Referencia CONCEPTUAL.
+//  - requests        -> Amazon DynamoDB. Referencia CONCEPTUAL.
+//  - recommendation  -> Amazon DynamoDB. Referencia CONCEPTUAL.
+//
+// Las tablas de los servicios con DynamoDB NO se crean como tablas SQL: se
+// conservan aqui para documentar atributos, tipos y reglas (CHECK, unicidades)
+// que cada servicio garantiza con validacion, escrituras condicionales y
+// transacciones dentro de su propia tabla. El diseno de claves e indices de
+// DynamoDB (propuesta preliminar) esta en instruments/adog_MS.md.
+//
+// NO HAY claves foraneas entre servicios: las relaciones que cruzan de una base
+// a otra son REFERENCIAS LOGICAS (se guarda el identificador; la integridad la
+// controla la aplicacion) y se documentan en las notas. Solo hay "Ref" dentro
+// de un mismo servicio.
+//
+// Convenciones de esta especificacion:
 //
 //  - Los nombres del MER (USUARIO) pasan a minusculas en singular (usuario).
 //  - DBML no expresa CHECK, indices parciales ni orden descendente: esos casos
 //    se documentan en las notas con el prefijo [FISICO], para implementarlos
 //    con la sintaxis del motor elegido.
-//  - Las claves foraneas usan "delete: restrict": ningun usuario ni perro se
-//    elimina fisicamente (RNF-10). Solo se borran fisicamente el test
-//    (perfil_adoptante, RN-53), los favoritos desmarcados, los valores de
-//    catalogo sin uso (RN-27) y las sesiones/enlaces caducados si se limpian.
+//  - Las claves foraneas (solo dentro de un servicio) usan "delete: restrict":
+//    ningun usuario ni perro se elimina fisicamente (RNF-10). Solo se borran
+//    fisicamente el test (perfil_adoptante, RN-53), los favoritos desmarcados,
+//    los valores de catalogo sin uso (RN-27) y las sesiones/enlaces caducados
+//    si se limpian.
 //  - Los timestamps se guardan en UTC. Las fechas de creacion las asigna la
 //    aplicacion.
 //  - Los correos se normalizan a minusculas antes de guardarse, para que la
@@ -23,27 +44,39 @@
 
 Project adogtame {
   note: '''
-  # Adogtame - esquema relacional v2
+  # Adogtame - modelo de datos v2 (una base de datos por microservicio)
 
-  ## Reglas que el esquema NO garantiza (las controla la aplicacion)
+  ## Propiedad de los datos
+  - auth (DynamoDB): usuario, rol, usuario_rol, persona, refugio, token_correo, sesion.
+  - dogs (PostgreSQL, relacional): perro, foto_perro, raza, color, favorito.
+  - requests (DynamoDB): solicitud_adopcion, solicitud_verificacion.
+  - recommendation (DynamoDB): perfil_adoptante.
+  No hay claves foraneas, JOIN ni transacciones entre servicios. Las referencias entre servicios son logicas.
+
+  ## Datos replicados entre servicios (decision de diseno)
+  - solicitud_adopcion.id_publicador: copia inmutable de perro.id_publicador, tomada al crear la solicitud.
+  - perro.publicador_eliminado: marca que auth actualiza al eliminar o restaurar al publicador.
+
+  ## Reglas que el modelo NO garantiza (las controla la aplicacion)
   1. Cada usuario tiene exactamente un rol (usuario_rol admite varias filas; ver support/dev/manejo_roles.md).
   2. El perfil corresponde al rol: rol REFUGIO tiene fila en refugio; MIEMBRO, RESCATISTA y ADMINISTRADOR tienen fila en persona.
   3. Solo MIEMBRO, RESCATISTA y ADMINISTRADOR tienen perfil_adoptante (RN-42).
   4. Siempre existe al menos un ADMINISTRADOR activo (RN-11).
   5. No se solicita la adopcion de un perro propio ni adoptado (RN-28).
   6. Transiciones de estado: las solicitudes resueltas no cambian; un perro solo es disponible o adoptado (RN-24).
-  7. Cascadas logicas: al eliminar un usuario o un perro se rechazan las solicitudes de adopcion pendientes (RN-10, RN-23).
+  7. Cascadas logicas entre servicios: al eliminar un usuario o un perro se rechazan las solicitudes de adopcion pendientes (RN-10, RN-23). Se hacen con llamadas entre servicios, idempotentes (adog_MS.md, seccion 8).
   8. Maximo 5 fotos por perro, la de orden 1 es obligatoria (RF-19).
   9. El rol cambia solo de MIEMBRO a RESCATISTA, al aprobar una verificacion (RN-04).
-  10. La eliminacion de un usuario oculta sus perros: es un filtro de lectura, no se modifica perro.eliminado (RN-10, RN-16).
+  10. La eliminacion de un usuario oculta sus perros: auth lo comunica a dogs, que activa perro.publicador_eliminado; no se modifica perro.eliminado (RN-10, RN-16).
+  11. La existencia de las referencias entre servicios (publicador, solicitante, perro) no se comprueba en la base; los usuarios y los perros no se borran fisicamente (RNF-10).
 
   ## Datos iniciales (semillas)
-  - rol: MIEMBRO, RESCATISTA, REFUGIO, ADMINISTRADOR.
-  - raza y color: valores iniciales para que RF-19 funcione desde el despliegue (incluir un valor para mestizo).
-  - usuario ADMINISTRADOR inicial (RN-12).
+  - rol (catalogo fijo en auth): MIEMBRO, RESCATISTA, REFUGIO, ADMINISTRADOR.
+  - raza y color (dogs): valores iniciales para que RF-19 funcione desde el despliegue (incluir un valor para mestizo).
+  - usuario ADMINISTRADOR inicial (auth, RN-12).
 
   ## Valores derivados que no se guardan
-  Edad del perro (de fecha_nacimiento), lista de recomendaciones (RN-47), espera tras un rechazo (de fecha_resolucion) y ocultamiento de perros por usuario eliminado.
+  Edad del perro (de fecha_nacimiento), lista de recomendaciones (RN-47) y espera tras un rechazo (de fecha_resolucion).
   '''
 }
 
@@ -113,7 +146,9 @@ Enum estado_solicitud_adopcion {
 }
 
 // =============================================================================
-// CUENTAS Y ACCESO
+// SERVICIO auth - CUENTAS Y ACCESO (Amazon DynamoDB; referencia conceptual)
+// En DynamoDB usuario, usuario_rol y persona o refugio se agrupan en un registro
+// por usuario; rol es un catalogo fijo en el codigo (adog_MS.md, seccion 3.2).
 // =============================================================================
 
 Table usuario {
@@ -243,17 +278,17 @@ Table sesion {
 }
 
 // =============================================================================
-// VERIFICACION
+// SERVICIO requests - VERIFICACION (Amazon DynamoDB; referencia conceptual)
 // =============================================================================
 
 Table solicitud_verificacion {
   id_solicitud       uuid                           [pk]
   tipo               solicitud_verificacion_tipo    [not null]
   estado             solicitud_verificacion_estado  [not null, default: 'pendiente']
-  id_usuario         uuid                           [null, note: 'Rescatista: solicitante. Refugio: NULL hasta aprobar; luego la cuenta creada']
+  id_usuario         uuid                           [null, note: 'Rescatista: solicitante. Refugio: NULL hasta aprobar; luego la cuenta creada. Referencia logica a auth.usuario']
   correo_solicitante varchar(120)                   [null, unique, note: 'Solo refugio. Normalizar a minusculas. NULL al resolver']
   datos_registro     json                           [null, note: 'Solo refugio. Datos del formulario RF-06 sin correo. NULL al resolver. Instantanea, no fuente de verdad']
-  id_admin_revisor   uuid                           [null]
+  id_admin_revisor   uuid                           [null, note: 'Referencia logica a auth.usuario']
   fecha_solicitud    timestamp                      [not null]
   fecha_resolucion   timestamp                      [null, note: 'NULL si esta pendiente. Se conserva siempre (calcula la espera de 5 min del rescatista)']
 
@@ -277,11 +312,11 @@ Table solicitud_verificacion {
 }
 
 // =============================================================================
-// RECOMENDACION
+// SERVICIO recommendation - RECOMENDACION (Amazon DynamoDB; referencia conceptual)
 // =============================================================================
 
 Table perfil_adoptante {
-  id_persona          uuid             [pk]
+  id_persona          uuid             [pk, note: 'Referencia logica a auth.persona.id_persona; sin clave foranea']
   ritmo               smallint         [not null, note: 'CHECK: -1 tranquilo, 0 moderado, 1 activo']
   dedicacion          smallint         [not null, note: 'CHECK: -1 poco, 0 normal, 1 mucho']
   vivienda            vivienda_tipo    [not null]
@@ -299,7 +334,7 @@ Table perfil_adoptante {
 }
 
 // =============================================================================
-// PERROS Y CATALOGOS
+// SERVICIO dogs - PERROS Y CATALOGOS (PostgreSQL; esquema relacional a implementar)
 // =============================================================================
 
 Table raza {
@@ -328,7 +363,7 @@ Table color {
 
 Table perro {
   id_perro               uuid          [pk]
-  id_publicador          uuid          [not null]
+  id_publicador          uuid          [not null, note: 'Referencia logica a auth.usuario; sin clave foranea']
   id_raza                smallint      [not null]
   id_color               smallint      [not null]
   nombre                 varchar(100)  [not null]
@@ -347,10 +382,12 @@ Table perro {
   fecha_publicacion      timestamp     [not null, note: 'Se conserva al volver a disponible (RN-24)']
   eliminado              boolean       [not null, default: false, note: 'Borrado logico e irreversible (RN-23)']
   fecha_eliminacion      timestamp     [null]
+  publicador_eliminado   boolean       [not null, default: false, note: 'Copia de la baja del publicador. La actualiza auth (baja o restauracion de cuenta). Oculta el perro (404) mientras sea true (RN-16)']
 
   indexes {
-    (eliminado, estado, fecha_publicacion) [name: 'ix_perro_listado', note: 'Listado publico y recomendaciones. Orden por fecha_publicacion descendente (RN-18)']
+    (eliminado, publicador_eliminado, estado, fecha_publicacion) [name: 'ix_perro_listado', note: 'Listado publico y recomendaciones. Orden por fecha_publicacion descendente (RN-18)']
     (id_publicador, eliminado, fecha_publicacion) [name: 'ix_perro_publicador', note: 'Mis perros y perfil del publicador']
+    id_publicador [name: 'ix_perro_publicador_baja', note: 'Activar o desactivar publicador_eliminado de todos los perros de una cuenta']
     id_raza [name: 'ix_perro_raza', note: 'Filtro por raza y verificacion de "en uso" (RN-27)']
     id_color [name: 'ix_perro_color', note: 'Filtro por color y verificacion de "en uso" (RN-27)']
     nombre [name: 'ix_perro_nombre', note: 'Filtro por nombre; busqueda sin distinguir mayusculas']
@@ -360,7 +397,8 @@ Table perro {
   Perro en adopcion. Los filtros de RF-01 (raza, edad, tamano, genero, pelaje, color, esterilizado, fecha de publicacion y nombre) se resuelven sobre estas columnas; la edad se calcula desde fecha_nacimiento.
   Los demas filtros (tamano, sexo, pelaje, esterilizado) no llevan indice propio por su baja selectividad; revisar si el volumen de datos lo exige.
   [FISICO] CHECK: eliminado = true si y solo si fecha_eliminacion no es NULL.
-  [FISICO] Visibilidad: un perro es visible si no esta eliminado y su publicador no esta eliminado (RN-16). Es un filtro de lectura.
+  [FISICO] publicador_eliminado solo lo modifica la llamada interna de auth (darBajaCuenta o restaurarCuenta), nunca una operacion del usuario.
+  [FISICO] Visibilidad: un perro es visible si eliminado = false y publicador_eliminado = false (RN-16). Es un filtro de lectura; no cambia perro.eliminado.
   '''
 }
 
@@ -381,7 +419,7 @@ Table foto_perro {
 }
 
 Table favorito {
-  id_usuario uuid       [not null]
+  id_usuario uuid       [not null, note: 'Referencia logica a auth.usuario; sin clave foranea']
   id_perro   uuid       [not null]
   fecha      timestamp  [not null]
 
@@ -394,13 +432,14 @@ Table favorito {
 }
 
 // =============================================================================
-// ADOPCION
+// SERVICIO requests - ADOPCION (Amazon DynamoDB; referencia conceptual)
 // =============================================================================
 
 Table solicitud_adopcion {
   id_solicitud     uuid                       [pk]
-  id_perro         uuid                       [not null]
-  id_solicitante   uuid                       [not null, note: 'Referencia a persona.id_persona']
+  id_perro         uuid                       [not null, note: 'Referencia logica a dogs.perro; sin clave foranea']
+  id_publicador    uuid                       [not null, note: 'Publicador del perro al solicitar: copia inmutable de dogs.perro.id_publicador (el publicador no cambia). Referencia logica a auth.usuario']
+  id_solicitante   uuid                       [not null, note: 'Referencia logica a auth.persona.id_persona']
   estado           estado_solicitud_adopcion  [not null, default: 'pendiente']
   mensaje          text                       [not null, note: 'Generado al solicitar: nombre, perro, telefono vigente en ese momento y enlace al perfil (RN-30). No se actualiza']
   fecha_solicitud  timestamp                  [not null]
@@ -409,25 +448,36 @@ Table solicitud_adopcion {
   indexes {
     (id_perro, id_solicitante) [name: 'ix_solicitud_adopcion_pendiente', note: '[FISICO] Debe ser UNIQUE PARCIAL donde estado = pendiente (RN-29). Tras un rechazo o cancelacion se puede volver a solicitar']
     (id_solicitante, fecha_solicitud) [name: 'ix_solicitud_adopcion_historial', note: 'Historial del adoptante, mas reciente primero (RF-17)']
-    (id_perro, estado) [name: 'ix_solicitud_adopcion_perro_estado', note: 'Solicitudes recibidas por perro y rechazo masivo de las pendientes']
+    (id_perro, estado) [name: 'ix_solicitud_adopcion_perro_estado', note: 'Rechazo masivo de las pendientes de un perro (adopcion manual o eliminacion)']
+    (id_publicador, estado, fecha_solicitud) [name: 'ix_solicitud_adopcion_publicador', note: 'Solicitudes recibidas por un publicador y rechazo de las pendientes al dar de baja su cuenta (RF-22, RF-28)']
   }
 
   Note: '''
   Solicitud de adopcion de un perro por una persona. Las solicitudes no generan notificaciones (RN-33).
-  El publicador se obtiene a traves del perro; no se repite aqui.
+  El publicador se guarda como copia (id_publicador) para no consultar a dogs al listar las solicitudes recibidas ni al dar de baja una cuenta.
   Un refugio no solicita adopciones (RN-28): no tiene persona, por lo que no puede ser id_solicitante.
   [FISICO] CHECK: estado = pendiente si y solo si fecha_resolucion es NULL.
-  [FISICO] La aplicacion rechaza solicitar un perro propio, adoptado o eliminado.
+  [FISICO] La aplicacion rechaza solicitar un perro propio, adoptado o eliminado (consulta a dogs al crear la solicitud).
   '''
 }
 
 // =============================================================================
-// RELACIONES
+// RELACIONES (solo dentro de un mismo servicio)
 // Cardinalidad: ">" muchos a uno, "-" uno a uno. Todas restrict (RNF-10).
 // DBML no expresa la opcionalidad del lado "uno" (ej. un usuario puede no tener
 // persona): se indica en las notas de cada tabla.
+//
+// Referencias LOGICAS entre servicios (sin Ref, sin clave foranea):
+//   dogs.perro.id_publicador                 -> auth.usuario
+//   dogs.favorito.id_usuario                 -> auth.usuario
+//   requests.solicitud_adopcion.id_perro     -> dogs.perro
+//   requests.solicitud_adopcion.id_publicador-> auth.usuario
+//   requests.solicitud_adopcion.id_solicitante -> auth.persona
+//   requests.solicitud_verificacion.id_usuario / id_admin_revisor -> auth.usuario
+//   recommendation.perfil_adoptante.id_persona -> auth.persona
 // =============================================================================
 
+// --- auth ---
 Ref fk_usuario_rol_usuario:  usuario_rol.id_usuario > usuario.id_usuario [delete: restrict]
 Ref fk_usuario_rol_rol:      usuario_rol.id_rol > rol.id_rol [delete: restrict]
 
@@ -437,27 +487,19 @@ Ref fk_refugio_usuario:      refugio.id_usuario - usuario.id_usuario [delete: re
 Ref fk_token_correo_usuario: token_correo.id_usuario > usuario.id_usuario [delete: restrict]
 Ref fk_sesion_usuario:       sesion.id_usuario > usuario.id_usuario [delete: restrict]
 
-Ref fk_solicitud_verif_usuario: solicitud_verificacion.id_usuario > usuario.id_usuario [delete: restrict]
-Ref fk_solicitud_verif_admin:   solicitud_verificacion.id_admin_revisor > usuario.id_usuario [delete: restrict]
-
-Ref fk_perfil_adoptante_persona: perfil_adoptante.id_persona - persona.id_persona [delete: restrict]
-
-Ref fk_perro_publicador:     perro.id_publicador > usuario.id_usuario [delete: restrict]
+// --- dogs ---
 Ref fk_perro_raza:           perro.id_raza > raza.id_raza [delete: restrict]
 Ref fk_perro_color:          perro.id_color > color.id_color [delete: restrict]
 Ref fk_foto_perro_perro:     foto_perro.id_perro > perro.id_perro [delete: restrict]
-
-Ref fk_favorito_usuario:     favorito.id_usuario > usuario.id_usuario [delete: restrict]
 Ref fk_favorito_perro:       favorito.id_perro > perro.id_perro [delete: restrict]
 
-Ref fk_solicitud_adopcion_perro:       solicitud_adopcion.id_perro > perro.id_perro [delete: restrict]
-Ref fk_solicitud_adopcion_solicitante: solicitud_adopcion.id_solicitante > persona.id_persona [delete: restrict]
+// --- requests y recommendation: sin relaciones internas ---
 
 // =============================================================================
-// GRUPOS DE TABLAS
+// GRUPOS DE TABLAS (un grupo por servicio)
 // =============================================================================
 
-TableGroup cuentas_y_acceso {
+TableGroup auth {
   usuario
   rol
   usuario_rol
@@ -465,24 +507,29 @@ TableGroup cuentas_y_acceso {
   refugio
   token_correo
   sesion
+
+  Note: 'Servicio Auth. Amazon DynamoDB. Referencia conceptual (adog_MS.md, seccion 3.2).'
 }
 
-TableGroup verificacion {
-  solicitud_verificacion
-}
-
-TableGroup recomendacion {
-  perfil_adoptante
-}
-
-TableGroup perros_y_catalogos {
+TableGroup dogs {
   perro
   foto_perro
   raza
   color
   favorito
+
+  Note: 'Servicio Dogs. PostgreSQL (Amazon Aurora Serverless). Esquema relacional a implementar.'
 }
 
-TableGroup adopcion {
+TableGroup requests {
+  solicitud_verificacion
   solicitud_adopcion
+
+  Note: 'Servicio Requests. Amazon DynamoDB. Referencia conceptual (adog_MS.md, seccion 5.2).'
+}
+
+TableGroup recommendation {
+  perfil_adoptante
+
+  Note: 'Servicio Recommendation. Amazon DynamoDB. Referencia conceptual (adog_MS.md, seccion 6.2).'
 }
