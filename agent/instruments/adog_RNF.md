@@ -27,7 +27,7 @@
 | ID | Requisito | Prioridad | Descripción | RF que lo citan |
 |---|---|---|---|---|
 | RNF-01 | Tiempo de carga de listados y perfiles | Debe tener | Con las funciones serverless activas, la consulta y presentación de listados, búsquedas con filtros y perfiles no debe superar los 3 segundos. La primera petición tras un periodo de inactividad (cold start, aceptado por diseño) no debe superar los 8 segundos, y mientras tanto la interfaz muestra un indicador de carga. | RF-01, RF-02, RF-03, RF-12, RF-17, RF-32, RF-33 |
-| RNF-02 | Tiempo de respuesta de las recomendaciones | Debería tener | El Servicio de IA debe responder en un máximo de 10 segundos con las funciones activas, o de 15 segundos si se produce un cold start; pasado ese tiempo, el sistema muestra las recomendaciones calculadas con la fórmula de afinidad y textos de plantilla. | RF-14 |
+| RNF-02 | Tiempo de respuesta de las recomendaciones | Debería tener | El Servicio de IA debe responder en un máximo de 20 segundos, incluido un posible cold start; pasado ese tiempo, el sistema muestra las recomendaciones calculadas con la fórmula de afinidad y textos de plantilla. | RF-14 |
 
 ---
 

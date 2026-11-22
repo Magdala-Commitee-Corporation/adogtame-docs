@@ -444,7 +444,7 @@ Como no se usarán clases reales, las operaciones de las clases más importantes
 | `eliminar` (`PerfilAdoptante`) | perfil | — | Borrado definitivo (única excepción al borrado lógico). | RF-15; RN-53 |
 | `calcularAfinidad` (`Recomendador`) | perfil, perro | número | Fórmula de `adog_REC.md`. | RF-14 |
 | `preseleccionar` (`Recomendador`) | perfil, perros disponibles | Hasta 20 candidatos | Ordena por afinidad. | RF-14 |
-| `generar` (`Recomendador`) | perfil, servicio de IA | Lista de recomendaciones | Envía a la IA solo respuestas del test y atributos de los candidatos, sin datos de identidad; límite de 10 s (15 s con cold start); usa el respaldo si falla o tarda. | RF-14; RNF-02, RNF-09 |
+| `generar` (`Recomendador`) | perfil, servicio de IA | Lista de recomendaciones | Envía a la IA solo respuestas del test y atributos de los candidatos, sin datos de identidad; límite de 20 s; usa el respaldo si falla o tarda. | RF-14; RNF-02, RNF-09 |
 | `validarRespuesta` (`Recomendador`) | respuesta de la IA, candidatos | verdadero o falso | Exactamente 6 perros (o todos si eran 6 o menos), todos candidatos, sin repetidos; textos de máx. 200 y 160 caracteres. | RNF-19 |
 | `respaldoConPlantillas` (`Recomendador`) | candidatos | Recomendaciones con textos de plantilla | Se muestran las mejores por afinidad. | RNF-11 |
 
@@ -452,7 +452,7 @@ Como no se usarán clases reales, las operaciones de las clases más importantes
 
 ### 5.5. Llamadas entre microservicios
 
-Son funciones del cliente interno de la librería compartida (síncronas, con *timeout*; las escrituras llevan clave de idempotencia). Los nombres son orientativos y los contratos se fijan en el incremento de cimientos (`adog_ARCH.md` §3.2 y §4).
+Las consultas son funciones del cliente interno de la librería compartida (síncronas, con *timeout*). Las escrituras que cruzan servicios son **eventos** publicados con el patrón *outbox* y consumidos desde colas SQS, con clave de idempotencia; la única escritura síncrona es `crearCuentaRefugio`. Los nombres son orientativos y los contratos se fijan en el incremento de cimientos (`adog_ARCH.md` §3.2 y §4, `adog_MS.md` §7).
 
 | Función | Servicio que la expone | La usa | Entradas | Salida | Reglas principales |
 |---|---|---|---|---|---|
@@ -461,12 +461,12 @@ Son funciones del cliente interno de la librería compartida (síncronas, con *t
 | `obtenerContactoSolicitante` | `Auth` | `Requests` | ids de persona (en lote) | nombre, foto, teléfono y correo vigentes | Para el mensaje (RN-30) y el panel del publicador. |
 | `existeCuentaConCorreo` | `Auth` | `Requests` | correo | verdadero o falso | Incluye cuentas eliminadas (RN-01). |
 | `existeSolicitudRefugioPendiente` | `Requests` | `Auth` | correo | verdadero o falso | Sin distinguir mayúsculas; reserva el correo en registro, creación de usuarios y cambio de correo. |
-| `cambiarRol` | `Auth` | `Requests` | id de usuario, rol, id de solicitud | usuario actualizado | Idempotente por id de solicitud; solo de MIEMBRO a RESCATISTA. |
+| `cambiarRol` (evento `RescatistaAprobado`) | `Auth` | `Requests` | id de usuario, rol, id de solicitud | usuario actualizado | Idempotente por id de solicitud; solo de MIEMBRO a RESCATISTA. |
 | `crearCuentaRefugio` | `Auth` | `Requests` | datos del refugio, correo, id de solicitud | cuenta creada con su enlace para definir contraseña | Idempotente por id de solicitud; correo confirmado, sin contraseña, rol REFUGIO. |
 | `consultarPerro` | `Dogs` | `Requests`, `Recommendation` | ids de perro, en lote (o criterios y límite, para candidatos) | datos y estado de los perros (o lista de candidatos) | No devuelve eliminados ni de cuentas eliminadas (404, RNF-07). |
-| `marcarAdoptado` | `Dogs` | `Requests` | id de perro, origen | perro adoptado | Con origen `Requests` no vuelve a llamar a `Requests`. |
-| `rechazarPendientesDelPerro` | `Requests` | `Dogs` | id de perro, motivo (adoptado o eliminado) | cantidad rechazada | Idempotente; sin motivo ni aviso al adoptante. |
-| `darBajaCuenta` / `restaurarCuenta` | `Dogs`, `Requests`, `Recommendation` | `Auth` | id de usuario | ok | `Dogs` activa o desactiva la marca `publicadorEliminado` de sus perros; `Requests` rechaza sus pendientes (por `idPublicador` y por solicitante); `Recommendation` borra su test. Al restaurar no se reabren. |
+| `marcarAdoptado` (evento `AdopcionAceptada`) | `Dogs` | `Requests` | id de perro, id de solicitud | perro adoptado | Idempotente por id de solicitud; publica `PerroAdoptado`, que `Requests` procesa sin efecto. |
+| `rechazarPendientesDelPerro` (eventos `PerroAdoptado` / `PerroEliminado`) | `Requests` | `Dogs` | id de perro, motivo (adoptado o eliminado) | cantidad rechazada | Idempotente; sin motivo ni aviso al adoptante. |
+| `darBajaCuenta` / `restaurarCuenta` (eventos `CuentaEliminada` / `CuentaRestaurada`) | `Dogs`, `Requests`, `Recommendation` | `Auth` | id de usuario, fecha del cambio | ok | `Dogs` activa o desactiva la marca `publicadorEliminado` de sus perros; `Requests` rechaza sus pendientes (por `idPublicador`, por solicitante y la de rescatista); `Recommendation` borra su test. Al restaurar no se reabren. Se ignoran eventos con fecha anterior al último cambio aplicado. |
 | `listarPerrosDePublicador` | `Dogs` | `Auth` | id de usuario | perros visibles | Para el perfil público (RF-03). No llama de vuelta a `Auth`. |
 
 ---

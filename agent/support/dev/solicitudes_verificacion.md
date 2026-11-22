@@ -121,7 +121,7 @@ Notas:
 
 ### 4.2 Resolver (RF-25, flujo A9)
 
-- **Aprobar:** el rol del usuario **cambia** de MIEMBRO a RESCATISTA. La asignación reemplaza al rol anterior: nunca quedan los dos a la vez. La fecha de asignación del nuevo rol es la fecha de aprobación. Con el nuevo rol, el usuario muestra la insignia y aparece en el listado de rescatistas. El cambio se hace dentro de la misma operación que marca la solicitud como aprobada y rige de inmediato, sin que la persona deba volver a iniciar sesión. Detalle de la transición en `manejo_roles.md` (sección 6).
+- **Aprobar:** el rol del usuario **cambia** de MIEMBRO a RESCATISTA. La asignación reemplaza al rol anterior: nunca quedan los dos a la vez. La fecha de asignación del nuevo rol es la fecha de aprobación. Con el nuevo rol, el usuario muestra la insignia y aparece en el listado de rescatistas. `Requests` marca la solicitud como aprobada y publica el evento `RescatistaAprobado` en la misma transacción; `Auth` cambia el rol al procesarlo, normalmente en segundos, sin que la persona deba volver a iniciar sesión (`adog_MS.md`, flujo F3). Detalle de la transición en `manejo_roles.md` (sección 6).
 - **Rechazar:** solo cambia la solicitud. La persona puede volver a solicitar tras 5 minutos.
 - En ambos casos: registrar el administrador y la fecha de resolución, y enviar un correo con el resultado, sin motivo.
 
@@ -198,7 +198,7 @@ El refugio puede enviar una nueva solicitud **de inmediato**, sin espera (RN-35)
 |---|---|---|
 | 1 | Aprobación de rescatista | **Decidido:** se reemplaza el rol MIEMBRO por RESCATISTA (4.2). Obliga a acotar RN-04 en el ERS (ver `manejo_roles.md`, sección 6). |
 | 2 | Espera tras un rechazo | **Decidido:** el rescatista debe esperar 5 minutos (RN-36); el refugio puede reenviar de inmediato (RN-35). En ambos casos se verifica que no haya una solicitud pendiente. El texto de CRV-02 («tras 5 minutos» para el refugio) en el ERS y en `adog_RN.md` debe corregirse. Como no hay espera para refugios, anular `correo_solicitante` al resolver no afecta nada. Riesgo asumido: el formulario público no tiene límite propio de reenvíos; solo lo mitiga RNF-23. |
-| 3 | Solicitud pendiente de un usuario eliminado | RN-10 rechaza las solicitudes de **adopción**, pero no menciona las de verificación. Debe definirse si al eliminar una cuenta su solicitud de rescatista pendiente pasa a rechazada. |
+| 3 | Solicitud pendiente de un usuario eliminado | **Decidido (I0.2):** al eliminar una cuenta, su solicitud de rescatista pendiente pasa a rechazada, igual que las de adopción (RN-10). Si la cuenta se restaura, no se reabre. |
 | 4 | Fotos huérfanas | Si una solicitud de refugio se rechaza, su foto queda en el almacenamiento sin referencia. Es aceptable, pero quien opere el almacenamiento debe saberlo. |
 | 5 | Criterios de verificación | CRV-01 y CRV-02 los aplica el administrador fuera del sistema (llamadas, revisión de la web). No se guarda evidencia de su cumplimiento. |
 | 6 | Auditoría | Solo se registra quién resolvió y cuándo; no hay historial de cambios (coherente con RF-27). |

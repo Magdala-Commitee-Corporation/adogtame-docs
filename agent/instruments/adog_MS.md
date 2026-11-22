@@ -15,7 +15,7 @@
 | `Requests` | `/requests` | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` (DynamoDB) | adopción, verificación | RF-06, RF-16 a RF-18, RF-22, RF-24, RF-25 |
 | `Recommendation` | `/recommendation` | `PERFIL_ADOPTANTE` (DynamoDB) | test, recomendaciones | RF-13 a RF-15 |
 
-Cada servicio es una función AWS Lambda con despliegue propio y es **dueño de sus datos**: tiene su propia base de datos y es el único que la lee y escribe. El almacenamiento es políglota: `Dogs` usa PostgreSQL (Amazon Aurora Serverless) y los demás usan Amazon DynamoDB (`adog_ARCH.md` §3.6). Las llamadas entre servicios son síncronas (flechas punteadas):
+Cada servicio es una función AWS Lambda con despliegue propio y es **dueño de sus datos**: tiene su propia base de datos y es el único que la lee y escribe. El almacenamiento es políglota: `Dogs` usa PostgreSQL (Amazon Aurora Serverless v2) y los demás usan Amazon DynamoDB (`adog_ARCH.md` §3.6). Las consultas entre servicios son síncronas (flechas punteadas) y las escrituras que cruzan servicios son eventos por SNS y SQS (flechas gruesas):
 
 ```mermaid
 flowchart LR
@@ -26,12 +26,17 @@ flowchart LR
 
     REQS -.-> AUTH
     REQS -.-> DOGS
-    DOGS -.-> REQS
     DOGS -.-> AUTH
     AUTH -.-> DOGS
     AUTH -.-> REQS
-    AUTH -.-> REC
     REC -.-> DOGS
+
+    REQS ==>|AdopcionAceptada| DOGS
+    REQS ==>|RescatistaAprobado| AUTH
+    DOGS ==>|PerroAdoptado, PerroEliminado| REQS
+    AUTH ==>|CuentaEliminada, CuentaRestaurada| DOGS
+    AUTH ==>|CuentaEliminada| REQS
+    AUTH ==>|CuentaEliminada| REC
 ```
 
 ---
@@ -67,22 +72,21 @@ Todos los servicios responden los errores con la misma estructura: un código es
 | 403 | `SIN_PERMISO` | El rol o la propiedad del recurso no lo permite. |
 | 404 | `NO_ENCONTRADO` | Recurso inexistente **o eliminado** (misma respuesta, RNF-07). |
 | 409 | `CONFLICTO` | Duplicado o estado que no lo permite (por ejemplo «La solicitud ya fue resuelta»). |
-| 429 | `LIMITE_EXCEDIDO` | Exceso de peticiones (lo responde API Gateway o WAF, RNF-23). |
+| 429 | `LIMITE_EXCEDIDO` | Exceso de peticiones (lo responde API Gateway o, en producción, el WAF; RNF-23). |
 | 502/504 | `DEPENDENCIA_NO_DISPONIBLE` | Otro servicio o un proveedor externo no respondió a tiempo. |
 | 500 | `ERROR_INTERNO` | Error no previsto; sin detalles internos al cliente. |
 
 Los mensajes de negocio son los del ERS (por ejemplo «El correo ya está registrado»).
 
-### 2.4. Llamadas internas
+### 2.4. Comunicación entre servicios
 
-Resumen de `adog_ARCH.md` §4.3, que se aplica a todas las llamadas de la sección 7:
+Resumen de `adog_ARCH.md` §4, que se aplica a todo el catálogo de la sección 7:
 
-- Invocación síncrona de Lambda mediante el cliente interno de la librería compartida; el servicio llamado comprueba que el llamante es otro servicio de Adogtame.
-- Tiempo límite inicial de 3 s por llamada; reintento acotado **solo en operaciones seguras de repetir**.
-- Toda escritura que cruza servicios lleva una **clave de idempotencia** (por ejemplo el id de la solicitud) y se puede repetir sin duplicar efectos.
-- Se propaga el identificador de petición y la identidad; máximo **dos saltos** por petición del usuario y datos de otros dominios pedidos **en lote**.
-- Un endpoint invocado por otro servicio **no vuelve a llamar al invocante**.
-- En operaciones que cruzan servicios, primero se aplica el efecto en el servicio de la regla más fuerte y **al final** se cambia el estado propio; un fallo a mitad se recupera repitiendo la operación (sección 8).
+- **Consultas:** invocación síncrona de Lambda mediante el cliente interno de la librería compartida; el servicio llamado comprueba que el llamante es otro servicio de Adogtame. Tiempo límite de 25 s y reintento acotado solo en operaciones seguras de repetir.
+- **Escrituras que cruzan servicios:** el servicio guarda su cambio y el evento en la **misma transacción** (*outbox*) y el evento llega por SNS a la cola SQS de cada consumidor. La única escritura síncrona es `crearCuentaRefugio` (flujo F2).
+- Todo evento y toda escritura síncrona llevan una **clave de idempotencia** (por ejemplo el id de la solicitud); los consumidores la usan porque SQS puede entregar un evento más de una vez, e ignoran los eventos con fecha anterior al último cambio aplicado.
+- Se propaga el identificador de petición y la identidad; máximo **dos saltos** de consultas por petición del usuario y datos de otros dominios pedidos **en lote**.
+- Una consulta invocada por otro servicio **no vuelve a llamar al invocante**.
 
 ### 2.5. Estructura interna de cada servicio
 
@@ -157,7 +161,6 @@ Invariantes: todo usuario tiene exactamente un rol; el perfil corresponde al rol
 | `validarSesion` | Autorizador | Devuelve la identidad (usuario, perfil y rol) y actualiza la última actividad; rechaza sesiones expiradas o de cuentas eliminadas. |
 | `obtenerPublicadores` / `obtenerContactoSolicitante` | `Dogs`, `Requests` | Datos de varios usuarios en lote (nombre, foto, tipo de cuenta, verificación y, si hay sesión, contacto). |
 | `existeCuentaConCorreo` | `Requests` | Indica si un correo pertenece a una cuenta, activa o eliminada. |
-| `cambiarRol` | `Requests` | Cambia MIEMBRO → RESCATISTA, idempotente por el id de la solicitud. |
 | `crearCuentaRefugio` | `Requests` | Crea cuenta, perfil y enlace para definir la contraseña en su propia transacción, idempotente por el id de la solicitud; **no** consulta a `Requests` porque ya viene de una solicitud. |
 
 ### 3.5. Llamadas que realiza
@@ -165,9 +168,10 @@ Invariantes: todo usuario tiene exactamente un rol; el perfil corresponde al rol
 | A | Para qué |
 |---|---|
 | `Requests` | Comprobar si un correo tiene una solicitud de refugio pendiente (registro, creación de usuarios y cambio de correo). |
-| `Dogs` | Ocultar o mostrar los perros de una cuenta en la baja y la restauración; listar los perros de un perfil público. |
-| `Requests` | Rechazar las solicitudes de adopción pendientes de una cuenta dada de baja. |
-| `Recommendation` | Borrar el test de una cuenta dada de baja. |
+| `Dogs` | Listar los perros de un perfil público. |
+
+**Eventos que publica:** `CuentaEliminada` y `CuentaRestaurada` (los consumen `Dogs`, `Requests` y `Recommendation`) y `CorreoSolicitado` (lo consume el propio `Auth` para enviar los enlaces).
+**Eventos que consume:** `RescatistaAprobado` (cambia el rol de MIEMBRO a RESCATISTA, idempotente por el id de la solicitud).
 
 ### 3.6. Adaptadores y requisitos
 
@@ -223,14 +227,15 @@ Un perro se oculta cuando su publicador es dado de baja (RN-16). Como `Dogs` no 
 | Candidatos | `Recommendation` | Perros disponibles, no propios y compatibles con el filtro del test, con los atributos que usa la fórmula. |
 | `marcarAdoptado` | `Requests` | Marca adoptado, idempotente; con origen `Requests` no vuelve a llamarla. |
 | `listarPerrosDePublicador` | `Auth` | Perros visibles de un perfil público. No llama de vuelta a `Auth`. |
-| `darBajaCuenta` / `restaurarCuenta` | `Auth` | Activa o desactiva la marca `publicador_eliminado` de los perros de una cuenta. |
 
 ### 4.5. Llamadas que realiza
 
 | A | Para qué |
 |---|---|
 | `Auth` | Datos de los publicadores en lote (ficha, listados). |
-| `Requests` | Rechazar las solicitudes pendientes de un perro cuando pasa a adoptado manualmente o se elimina. |
+
+**Eventos que publica:** `PerroAdoptado` y `PerroEliminado` (los consume `Requests`), desde la tabla `outbox` de su base.
+**Eventos que consume:** `AdopcionAceptada` (marca el perro como adoptado), `CuentaEliminada` y `CuentaRestaurada` (activan o desactivan la marca `publicador_eliminado` de los perros de la cuenta).
 
 ### 4.6. Adaptadores y requisitos
 
@@ -298,8 +303,11 @@ Es dueño de **las solicitudes que alguien resuelve**: las de adopción (el adop
 
 | A | Para qué |
 |---|---|
-| `Auth` | Comprobar si un correo pertenece a una cuenta; cambiar el rol; crear la cuenta del refugio; obtener los datos de los solicitantes en lote. |
-| `Dogs` | Comprobar disponibilidad y propiedad del perro; marcarlo adoptado; obtener los datos de varios perros, en lote. |
+| `Auth` | Comprobar si un correo pertenece a una cuenta; crear la cuenta del refugio (síncrona, F2); obtener los datos de los solicitantes en lote. |
+| `Dogs` | Comprobar disponibilidad y propiedad del perro; obtener los datos de varios perros, en lote. |
+
+**Eventos que publica:** `AdopcionAceptada` (lo consume `Dogs`), `RescatistaAprobado` (lo consume `Auth`) y `CorreoSolicitado` (lo consume el propio `Requests` para enviar los resultados de verificación).
+**Eventos que consume:** `PerroAdoptado` y `PerroEliminado` (rechaza las pendientes del perro) y `CuentaEliminada` (rechaza las pendientes de la cuenta, como solicitante o como publicador, y su solicitud de rescatista pendiente).
 
 ### 5.7. Adaptadores y requisitos
 
@@ -338,18 +346,19 @@ Es dueño del **test de estilo de vida y de las recomendaciones**. Guarda las re
 
 | Operación | La usa | Descripción |
 |---|---|---|
-| `darBajaCuenta` | `Auth` | Borra el test de una cuenta dada de baja (RF-11, RF-28). |
 
 ### 6.5. Llamadas que realiza
 
 | A | Para qué |
 |---|---|
 | `Dogs` | Obtener los perros candidatos (disponibles, no propios y compatibles). |
-| Servicio de IA (adaptador) | Elegir 6 de los 20 mejores y redactar «Por qué encaja» y «Lo que debes saber». |
+| Servicio de IA (adaptador, Google Gemini) | Elegir 6 de los 20 mejores y redactar «Por qué encaja» y «Lo que debes saber». |
+
+**Eventos que consume:** `CuentaEliminada` (borra el test de la cuenta, RF-11, RF-28).
 
 ### 6.6. Adaptadores y requisitos
 
-Usa el adaptador de **IA**. Requisitos: RNF-02 (10 s, 15 s con arranque en frío), RNF-09 (solo respuestas del test y atributos de los perros, nunca identidad ni ubicación), RNF-11, RNF-13, RNF-15, RNF-18 (tope de USD 5 al mes) y RNF-19 (el comentario y las descripciones se envían como datos, nunca como instrucciones).
+Usa el adaptador de **IA**. Requisitos: RNF-02 (20 s), RNF-09 (solo respuestas del test y atributos de los perros, nunca identidad ni ubicación), RNF-11, RNF-13, RNF-15, RNF-18 (tope de USD 5 al mes) y RNF-19 (el comentario y las descripciones se envían como datos, nunca como instrucciones).
 
 ### 6.7. Pruebas clave
 
@@ -357,21 +366,29 @@ Test incompleto; solo el dueño accede a su test; refugio rechazado; la respuest
 
 ---
 
-## 7. Catálogo de llamadas internas
+## 7. Catálogo de llamadas internas y eventos
+
+**Consultas y escrituras síncronas**
 
 | Operación | La expone | La usa | Escritura | Idempotencia |
 |---|---|---|---|---|
 | `validarSesion` | `Auth` | Autorizador (todos) | No (actualiza la última actividad) | — |
 | `obtenerPublicadores` / `obtenerContactoSolicitante` | `Auth` | `Dogs`, `Requests` | No | — |
 | `existeCuentaConCorreo` | `Auth` | `Requests` | No | — |
-| `cambiarRol` | `Auth` | `Requests` | Sí | Clave: id de la solicitud |
 | `crearCuentaRefugio` | `Auth` | `Requests` | Sí | Clave: id de la solicitud |
 | `existeSolicitudRefugioPendiente` | `Requests` | `Auth` | No | — |
 | `consultarPerro` (lote, candidatos) | `Dogs` | `Requests`, `Recommendation` | No | — |
-| `marcarAdoptado` | `Dogs` | `Requests` | Sí | Clave: id de la solicitud |
 | `listarPerrosDePublicador` | `Dogs` | `Auth` | No | — |
-| `rechazarPendientesDelPerro` | `Requests` | `Dogs` | Sí | Clave: id del perro y motivo |
-| `darBajaCuenta` / `restaurarCuenta` | `Dogs`, `Requests`, `Recommendation` | `Auth` | Sí | Clave: id del usuario |
+
+**Eventos**
+
+| Evento | Lo publica | Lo consumen | Idempotencia |
+|---|---|---|---|
+| `AdopcionAceptada` | `Requests` | `Dogs` | Clave: id de la solicitud |
+| `PerroAdoptado` / `PerroEliminado` | `Dogs` | `Requests` | Clave: id del perro y motivo |
+| `RescatistaAprobado` | `Requests` | `Auth` | Clave: id de la solicitud |
+| `CuentaEliminada` / `CuentaRestaurada` | `Auth` | `Dogs`, `Requests`, `Recommendation` | Clave: id del usuario y fecha del cambio |
+| `CorreoSolicitado` | `Auth`, `Requests` | El mismo servicio | Clave: id del evento |
 
 Reglas de las llamadas: ver la sección 2.4 y `adog_ARCH.md` §3.2 y §4.3.
 
@@ -379,13 +396,13 @@ Reglas de las llamadas: ver la sección 2.4 y `adog_ARCH.md` §3.2 y §4.3.
 
 ## 8. Flujos que cruzan servicios
 
-Cada flujo sigue la regla de la sección 2.4 (efecto en el servicio dueño primero, estado propio al final) y se puede repetir ante un fallo.
+Cada flujo sigue la sección 2.4: las consultas son síncronas y las escrituras en otros servicios se hacen por eventos, que se reintentan solos hasta aplicarse o terminar en la cola de mensajes fallidos.
 
 ### F1. Registro con correo reservado
 
 1. `Auth` valida los datos y consulta a `Requests` si el correo tiene una solicitud de refugio pendiente.
-2. `Auth` crea la cuenta y el token de confirmación y, después de guardar, envía el correo.
-3. Si el correo no sale, la cuenta existe y el usuario puede pedir el reenvío; no se pierden datos.
+2. `Auth` crea la cuenta, el token de confirmación y el evento `CorreoSolicitado` en una sola transacción; su consumidor envía el correo.
+3. Si el correo no sale, SQS lo reintenta; si se agotan los intentos, la cuenta existe y el usuario puede pedir el reenvío. No se pierden datos.
 
 *Riesgo asumido:* entre la consulta y la creación puede entrar una solicitud de refugio con el mismo correo; se mitiga porque la aprobación vuelve a comprobar que el correo no pertenezca a una cuenta.
 
@@ -394,38 +411,39 @@ Cada flujo sigue la regla de la sección 2.4 (efecto en el servicio dueño prime
 1. `Requests` comprueba que la solicitud siga pendiente y vuelve a validar `datos_registro`.
 2. `Requests` llama a `Auth.crearCuentaRefugio` con el id de la solicitud como clave. `Auth`, en una sola transacción propia, crea la cuenta (correo confirmado, sin contraseña, rol REFUGIO), su perfil y el enlace para definir la contraseña (10 min).
 3. Con la cuenta creada, `Requests` marca la solicitud como aprobada, registra administrador y fecha, vincula `id_usuario` y anula `correo_solicitante` y `datos_registro`.
-4. Se envía el correo de aprobación con el enlace.
+4. `Auth` envía el correo de aprobación con el enlace (por su evento `CorreoSolicitado`, guardado junto con la cuenta).
 
 *Fallos:* si falla el paso 2, no queda nada y el administrador reintenta. Si falla el paso 3, la solicitud sigue pendiente y reintentar no duplica la cuenta (clave de idempotencia). Si falla el correo, no se deshace nada y la contraseña se define luego con «Recuperar contraseña».
-*Correo (a confirmar):* el aviso de aprobación del refugio, que contiene el enlace de `Auth`, lo envía `Auth` al crear la cuenta; los demás resultados (rechazos y aprobación de rescatista) los envía `Requests`.
+*Correo (decidido):* el aviso de aprobación del refugio, que contiene el enlace de `Auth`, lo envía `Auth` al crear la cuenta; los demás resultados (rechazos y aprobación de rescatista) los envía `Requests`.
+*Por qué es síncrono:* `Auth` puede rechazar la creación (por ejemplo, si el correo ya pertenece a una cuenta) y el administrador debe ver el resultado en el momento.
 
 ### F3. Aprobar una solicitud de rescatista
 
 1. `Requests` comprueba que siga pendiente.
-2. `Requests` llama a `Auth.cambiarRol` (MIEMBRO → RESCATISTA, idempotente por el id de la solicitud); el rol rige de inmediato.
-3. `Requests` marca la solicitud como aprobada y envía el correo del resultado.
+2. En una sola transacción, `Requests` marca la solicitud como aprobada y guarda los eventos `RescatistaAprobado` y `CorreoSolicitado` (resultado).
+3. `Auth` consume `RescatistaAprobado` y cambia el rol de MIEMBRO a RESCATISTA (idempotente por el id de la solicitud). El rol rige en cuanto se procesa el evento, normalmente en segundos, sin volver a iniciar sesión.
 
 ### F4. Aceptar una solicitud de adopción
 
 1. `Requests` comprueba que la solicitud siga pendiente y que quien acepta sea el publicador del perro (`id_publicador` guardado en la solicitud).
-2. `Requests` llama a `Dogs.marcarAdoptado` con origen `Requests`; `Dogs` no vuelve a llamar a `Requests`.
-3. `Requests` marca la solicitud como aceptada y **rechaza por sí mismo** las demás pendientes del perro.
+2. En una sola transacción, `Requests` marca la solicitud como aceptada, **rechaza por sí mismo** las demás pendientes del perro y guarda el evento `AdopcionAceptada`.
+3. `Dogs` consume el evento y marca el perro como adoptado; esto publica `PerroAdoptado`, que `Requests` procesa sin efecto porque ya no quedan pendientes.
 
-*Fallos:* si falla el paso 3, la solicitud sigue pendiente; al reintentar, `Requests` continúa aunque el perro ya figure como adoptado.
+*Intervalo:* hasta que `Dogs` procesa el evento, el perro puede verse disponible. Una solicitud que entre en ese intervalo queda rechazada al procesarse `PerroAdoptado`.
 
 ### F5. Adopción manual o eliminación de un perro (nace en `Dogs`)
 
 1. `Dogs` valida que el usuario sea el publicador (o administrador, para eliminar).
-2. `Dogs` llama a `Requests.rechazarPendientesDelPerro` (idempotente).
-3. `Dogs` cambia el estado del perro (adoptado o eliminado).
+2. En una sola transacción, `Dogs` cambia el estado del perro (adoptado o eliminado) y guarda el evento `PerroAdoptado` o `PerroEliminado` en su tabla `outbox`.
+3. `Requests` consume el evento y rechaza las solicitudes pendientes del perro (idempotente).
 
 ### F6. Baja y restauración de una cuenta (RF-11 y RF-28)
 
 1. `Auth` valida la operación (el administrador no se elimina a sí mismo ni deja el sistema sin administradores).
-2. `Auth` llama a `Dogs` (ocultar sus perros), `Requests` (rechazar sus solicitudes pendientes) y `Recommendation` (borrar su test), todas idempotentes por el id del usuario.
-3. `Auth` marca la cuenta como eliminada y cierra sus sesiones.
+2. En una sola transacción, `Auth` marca la cuenta como eliminada, cierra sus sesiones y guarda el evento `CuentaEliminada`.
+3. Los consumidores aplican su parte: `Dogs` oculta sus perros, `Requests` rechaza sus solicitudes pendientes (de adopción y de rescatista) y `Recommendation` borra su test.
 
-La restauración hace lo inverso para los perros (mostrarlos) y no reabre las solicitudes ni recupera el test. *Fallos:* si algún servicio no responde, la cuenta sigue activa y se reintenta.
+La restauración publica `CuentaRestaurada`: `Dogs` vuelve a mostrar los perros; no se reabren las solicitudes ni se recupera el test. Como los eventos pueden llegar desordenados, cada consumidor ignora un evento con fecha anterior al último cambio que aplicó a esa cuenta.
 
 ### F7. Solicitar una adopción
 
@@ -436,24 +454,25 @@ La restauración hace lo inverso para los perros (mostrarlos) y no reabre las so
 
 1. `Recommendation` lee el test del usuario y obtiene de `Dogs` los candidatos.
 2. Calcula la afinidad y preselecciona los 20 mejores.
-3. Consulta a la IA con límite de 10 s (15 s con arranque en frío); valida la respuesta (6 perros o todos si eran 6 o menos, sin repetidos, ajenos al conjunto o con textos fuera de límite).
+3. Consulta a la IA (Google Gemini) con límite de 20 s (RNF-02), recortado a lo que quede de la petición menos 2 s; valida la respuesta (6 perros o todos si eran 6 o menos, sin repetidos, ajenos al conjunto o con textos fuera de límite).
 4. Si la IA falla, tarda o responde algo inválido, usa la fórmula con plantillas. Devuelve 6 recomendaciones y no las guarda.
 
 ---
 
-## 9. Decisiones abiertas
+## 9. Decisiones tomadas en I0.2
 
-Decididos con la base de datos por servicio: los dos datos replicados (`id_publicador` y `publicador_eliminado`, `adog_MER.md`) y el almacenamiento políglota.
+Decididos antes: los dos datos replicados (`id_publicador` y `publicador_eliminado`, `adog_MER.md`), el almacenamiento políglota y la foto de la solicitud de refugio (la guarda `Requests` y la reutiliza `Auth`; si se rechaza, queda sin referencia, `solicitudes_verificacion.md`).
 
-| # | Punto | Propuesta o consecuencia |
+| # | Punto | Decisión |
 |---|---|---|
-| 1 | Motor relacional de `Dogs` y costo | Decidido el almacenamiento políglota (PostgreSQL para `Dogs`; DynamoDB para el resto). Falta fijar la configuración de costo mínimo de la base de `Dogs` (Aurora Serverless con o sin pausa u otra opción) y el presupuesto mensual de AWS (`adog_ARCH.md` §7). |
-| 2 | Quién envía cada correo | Propuesta del flujo F2: `Auth` envía el aviso con enlace de la aprobación de refugio; `Requests` envía los demás resultados. |
-| 3 | Solicitud de rescatista pendiente de una cuenta dada de baja | `solicitudes_verificacion.md` §8 (punto 3) la deja sin definir; hay que decidir si pasa a rechazada. |
-| 4 | Foto de la solicitud de refugio | La guarda `Requests` y la reutiliza `Auth` al crear el perfil; si se rechaza, queda sin referencia (aceptado en `solicitudes_verificacion.md`). |
-| 5 | Orden de las fotos al publicar | Crear el perro y luego subir las fotos una por una, o subirlas antes con clave temporal; se fija en el contrato de `Dogs`. |
-| 6 | Diseño de DynamoDB | Las claves e índices de las secciones 3.2, 5.2 y 6.2 son preliminares; se confirman con los patrones de acceso reales durante el incremento de cimientos. |
-| 7 | Valores finales | Tiempos límite internos, de la IA y de cada Lambda, tamaño máximo por foto y transporte de la sesión (`adog_ARCH.md` §7). |
+| 1 | Motor relacional de `Dogs` y costo | Aurora Serverless v2 con Data API y pausa automática; presupuesto de AWS de USD 15 al mes (`adog_ARCH.md` §3.6 y §5.1). |
+| 2 | Quién envía cada correo | `Auth` envía todos los enlaces, incluido el aviso de aprobación del refugio; `Requests` envía los resultados de verificación (flujos F2 y F3). |
+| 3 | Solicitud de rescatista pendiente de una cuenta dada de baja | Pasa a **rechazada** al consumir `CuentaEliminada`, igual que las de adopción (RN-10). Si la cuenta se restaura, no se reabre. |
+| 4 | Orden de las fotos al publicar | Las fotos se suben antes, de una en una, con clave temporal; al crear el perro se pasan las claves (`adog_ARCH.md` §4.5). |
+| 5 | Comunicación entre servicios | Consultas síncronas; escrituras por eventos con SNS, SQS y *outbox* (sección 2.4 y `adog_ARCH.md` §4). |
+| 6 | Valores finales | Tiempos límite y tamaño máximo por foto (2 MB) en `adog_ARCH.md` §4.4; sesión en *cookie* HttpOnly. |
+
+Pendiente: el diseño de DynamoDB. Las claves e índices de las secciones 3.2, 5.2 y 6.2 son preliminares y se confirman en I0.4b. Cada tabla de `Auth` y `Requests` suma los registros de su *outbox*.
 
 ---
 
