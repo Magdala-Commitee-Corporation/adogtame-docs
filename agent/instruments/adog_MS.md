@@ -358,7 +358,7 @@ Es dueño del **test de estilo de vida y de las recomendaciones**. Guarda las re
 
 ### 6.6. Adaptadores y requisitos
 
-Usa el adaptador de **IA**. Requisitos: RNF-02 (10 s, 15 s con arranque en frío), RNF-09 (solo respuestas del test y atributos de los perros, nunca identidad ni ubicación), RNF-11, RNF-13, RNF-15, RNF-18 (tope de USD 5 al mes) y RNF-19 (el comentario y las descripciones se envían como datos, nunca como instrucciones).
+Usa el adaptador de **IA**. Requisitos: RNF-02 (20 s), RNF-09 (solo respuestas del test y atributos de los perros, nunca identidad ni ubicación), RNF-11, RNF-13, RNF-15, RNF-18 (tope de USD 5 al mes) y RNF-19 (el comentario y las descripciones se envían como datos, nunca como instrucciones).
 
 ### 6.7. Pruebas clave
 
@@ -454,7 +454,7 @@ La restauración publica `CuentaRestaurada`: `Dogs` vuelve a mostrar los perros;
 
 1. `Recommendation` lee el test del usuario y obtiene de `Dogs` los candidatos.
 2. Calcula la afinidad y preselecciona los 20 mejores.
-3. Consulta a la IA (Google Gemini) con límite de 10 s (15 s con arranque en frío, RNF-02); valida la respuesta (6 perros o todos si eran 6 o menos, sin repetidos, ajenos al conjunto o con textos fuera de límite).
+3. Consulta a la IA (Google Gemini) con límite de 20 s (RNF-02), recortado a lo que quede de la petición menos 2 s; valida la respuesta (6 perros o todos si eran 6 o menos, sin repetidos, ajenos al conjunto o con textos fuera de límite).
 4. Si la IA falla, tarda o responde algo inválido, usa la fórmula con plantillas. Devuelve 6 recomendaciones y no las guarda.
 
 ---

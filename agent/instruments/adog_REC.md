@@ -124,7 +124,7 @@ flowchart TD
 |---|---|---|
 | A4 | No queda ningún perro compatible. | El sistema muestra MSG-REC-03. |
 | A5 | Quedan 6 candidatos o menos. | El sistema envía todos al Servicio de IA, que **solo redacta sus textos**; se muestran todos. |
-| A8 | La IA no responde en 10 s (15 s con cold start) o falla. | El sistema muestra los 6 primeros por afinidad con textos de plantilla (sección 8). |
+| A8 | La IA no responde en 20 s o falla. | El sistema muestra los 6 primeros por afinidad con textos de plantilla (sección 8). |
 | A9 | La respuesta de la IA no es válida (7.4). | El sistema responde «Respuesta del Servicio de IA no válida», la descarta y aplica el mismo respaldo de A8. |
 
 En A8 y A9 el adoptante no ve un error: recibe igualmente sus recomendaciones (RNF-11).
@@ -302,7 +302,7 @@ La IA no puede agregar perros fuera de la lista ni alterar sus datos (RNF-19).
 
 ### 7.5 Tiempos
 
-La IA debe responder en un máximo de **10 segundos** con las funciones activas, o de **15 segundos** si se produce un cold start; pasado ese tiempo se aplica el respaldo (RNF-02).
+La IA debe responder en un máximo de **20 segundos**, incluido un posible cold start; pasado ese tiempo se aplica el respaldo (RNF-02). Si a la petición le queda menos tiempo (la función de `Recommendation` tiene un límite de 30 s), el límite se recorta a lo que quede menos 2 s, para responder con el respaldo antes de que API Gateway corte.
 
 ### 7.6 Proveedor
 
@@ -494,7 +494,7 @@ Revisión breve (tres consultas, nov-2026); varias fuentes son resúmenes de div
 - **Sin comentario y con descripciones pobres, la IA aporta poco a la elección.** En ese caso elegirá casi lo mismo que la fórmula y su valor estará en los textos personalizados. Por eso conviene animar al adoptante a escribir el comentario y que el formulario del perro invite al publicador a describir su carácter (RF-19).
 - **Costo por consulta.** Cada consulta envía hasta 20 perros con su descripción recortada: unos 3.000 a 4.000 tokens de entrada y menos de 1.000 de salida. Con un modelo de bajo costo, suele quedar por debajo de un centavo de dólar por consulta, de modo que USD 5 al mes (RNF-18) alcanzan para cientos o miles de consultas. Debe confirmarse con el precio del proveedor elegido.
 - **Cada consulta llama a la IA.** La lista no se guarda, así que cada vez que se abre la sección hay una llamada (costo y latencia aceptados para este proyecto). Por la misma razón, la IA puede devolver un orden o unos textos ligeramente distintos entre dos consultas con el mismo test.
-- **Latencia.** El adoptante espera la respuesta de la IA (hasta 10 s, o 15 s con cold start) antes de ver la lista.
+- **Latencia.** El adoptante espera la respuesta de la IA (hasta 20 s) antes de ver la lista.
 - **La IA puede redactar textos imprecisos o ser manipulada por el texto libre.** Se mitiga con la instrucción de tratar el texto como dato, el formato cerrado, los límites de longitud y la validación de la respuesta (7.4).
 - **Los criterios son heurísticos.** La investigación vincula la personalidad del dueño con rasgos *conductuales* del perro, no físicos; el único vínculo razonable con atributos existentes es la edad, como aproximación del nivel de actividad (sección 13).
 - **Un perfil no predice el éxito de una adopción.** Por eso se mantienen el listado con filtros y la solicitud de adopción sin cambios.

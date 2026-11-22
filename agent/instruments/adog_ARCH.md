@@ -279,7 +279,7 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 | API Gateway (HTTP API) | 30 s | Máximo fijo de AWS. |
 | Funciones que atienden al usuario | 30 s | Máximo útil: API Gateway corta a los 30 s. |
 | Consultas internas síncronas | 25 s | Deja margen a la función que llama. |
-| Servicio de IA | 10 s, o 15 s con *cold start* | Lo fija RNF-02; pasado ese tiempo se usa el respaldo. |
+| Servicio de IA | 20 s, recortado a lo que quede de la petición menos 2 s | RNF-02; pasado ese tiempo se usa el respaldo. El recorte asegura que el respaldo se responda antes del corte de 30 s, aunque la consulta previa a `Dogs` haya tardado. |
 | Funciones que consumen colas | 60 s | SQS oculta el mensaje 6 veces ese tiempo (6 min); con el máximo de 900 s, un mensaje colgado se reintentaría a los 90 min. |
 | Tamaño máximo por foto | 2 MB | Igual que la foto de la solicitud de refugio; muy por debajo del límite de 6 MB de Lambda. |
 

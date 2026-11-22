@@ -444,7 +444,7 @@ Como no se usarán clases reales, las operaciones de las clases más importantes
 | `eliminar` (`PerfilAdoptante`) | perfil | — | Borrado definitivo (única excepción al borrado lógico). | RF-15; RN-53 |
 | `calcularAfinidad` (`Recomendador`) | perfil, perro | número | Fórmula de `adog_REC.md`. | RF-14 |
 | `preseleccionar` (`Recomendador`) | perfil, perros disponibles | Hasta 20 candidatos | Ordena por afinidad. | RF-14 |
-| `generar` (`Recomendador`) | perfil, servicio de IA | Lista de recomendaciones | Envía a la IA solo respuestas del test y atributos de los candidatos, sin datos de identidad; límite de 10 s (15 s con cold start); usa el respaldo si falla o tarda. | RF-14; RNF-02, RNF-09 |
+| `generar` (`Recomendador`) | perfil, servicio de IA | Lista de recomendaciones | Envía a la IA solo respuestas del test y atributos de los candidatos, sin datos de identidad; límite de 20 s; usa el respaldo si falla o tarda. | RF-14; RNF-02, RNF-09 |
 | `validarRespuesta` (`Recomendador`) | respuesta de la IA, candidatos | verdadero o falso | Exactamente 6 perros (o todos si eran 6 o menos), todos candidatos, sin repetidos; textos de máx. 200 y 160 caracteres. | RNF-19 |
 | `respaldoConPlantillas` (`Recomendador`) | candidatos | Recomendaciones con textos de plantilla | Se muestran las mejores por afinidad. | RNF-11 |
 
