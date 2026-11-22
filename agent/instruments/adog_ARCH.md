@@ -13,7 +13,7 @@
 - **Comunicación mixta:** las **consultas** entre servicios son síncronas, con límite de tiempo; las **escrituras que cruzan servicios** viajan como **eventos** por Amazon SNS y Amazon SQS, publicados con el patrón *outbox* (sección 4).
 - **Lenguaje y paradigma:** TypeScript en cliente y servidor. El servidor usa **programación funcional**: **no se implementan clases reales**; el comportamiento son funciones que reciben datos y devuelven datos (las «clases» de `adog_CLS.md` son un modelo conceptual y sus operaciones se implementan como funciones).
 - **Integraciones aisladas:** el almacenamiento de imágenes, el envío de correos y el Servicio de IA se acceden solo mediante **adaptadores**, que forman una **librería compartida** (no un servicio): un tipo de contrato y un módulo de funciones que lo cumple, recibido como parámetro, de modo que el proveedor pueda cambiarse sin tocar el negocio (RNF-13). La librería compartida incluye también el cliente de comunicación entre servicios y el contrato de errores (sección 4).
-- **Infraestructura como código con SST v3:** un solo repositorio define y despliega todos los recursos de AWS (funciones, API, bases de datos, temas, colas, *buckets*, CloudFront y secretos), con una etapa por ambiente (desarrollo, pruebas y producción).
+- **Infraestructura como código con SST v4:** cada microservicio, la aplicación web y la infraestructura base tienen **su propio repositorio** con su aplicación de SST, y se despliegan por separado en dos etapas: `dev` y `prod`. Los repositorios se enlazan desde `adogtame-docs` como submódulos en `repos/` (sección 8).
 - **Sin estado en el servidor:** las funciones no guardan información entre peticiones; el estado vive en la base de datos de cada servicio (las sesiones, en la de `Auth`) y en S3.
 
 ---
@@ -132,7 +132,7 @@ Cada microservicio agrupa los casos de uso de un dominio. Todos validan y saniti
 
 | Componente | Responsabilidad | Observación de diseño |
 |---|---|---|
-| API HTTP (API Gateway) | Expone los microservicios al cliente por HTTPS, ejecuta el autorizador de sesión y limita el tráfico. | Punto de entrada único; una ruta por servicio; detrás de CloudFront (ruta `/api`). |
+| APIs HTTP (API Gateway) | Exponen cada microservicio por HTTPS, ejecutan el autorizador de sesión y limitan el tráfico. | Una API por microservicio, con dominio propio; CloudFront las reúne en `/api/<servicio>`. |
 | Microservicios (Lambda) | Ejecutan las reglas de cada dominio. | Funciones TypeScript sin estado; despliegue independiente; base de datos propia. |
 | Mensajería (SNS + SQS) | Lleva los eventos de las escrituras que cruzan servicios. | Un tema SNS por servicio que publica; una cola SQS por consumidor, con filtro por tipo de evento y cola de mensajes fallidos (DLQ). |
 | Librería compartida | Adaptadores (S3, SES, IA), cliente interno, contrato de errores, validación y sanitización. | No es un servicio; se incluye en cada despliegue. Cambiar de proveedor no toca la lógica de negocio (RNF-13). |
@@ -188,10 +188,10 @@ Reglas de estas llamadas:
 
 | Componente | Responsabilidad | Requisitos |
 |---|---|---|
-| Amazon CloudFront | Punto de entrada HTTPS; sirve los archivos de la aplicación (S3 sitio estático) y las fotos públicas (S3 fotos), y envía la ruta `/api` a API Gateway, de modo que la aplicación y la API comparten dominio. Aplica la política de seguridad de contenido (CSP). | RNF-05, RNF-21 |
+| Amazon CloudFront | Punto de entrada HTTPS; sirve los archivos de la aplicación (S3 sitio estático) y las fotos públicas (S3 fotos), y envía cada ruta `/api/<servicio>` a la API de ese microservicio, de modo que la aplicación y las APIs comparten dominio. Se define con el componente `Router` de SST. Aplica la política de seguridad de contenido (CSP). | RNF-05, RNF-21 |
 | Amazon S3 (sitio estático) | Aloja la aplicación compilada. | RNF-18 |
-| AWS WAF | Asociado a CloudFront. Bloquea IP con más de 500 peticiones en 5 minutos y aplica reglas administradas contra ataques comunes. **Solo se activa en la etapa de producción**, por costo (unos USD 7 al mes); en desarrollo y pruebas se omite y la limitación de API Gateway sigue activa. | RNF-23 |
-| Amazon API Gateway | API HTTP única (no admite WAF directo; por eso el WAF va en CloudFront); limita el tráfico a 50 peticiones por segundo (ráfagas de 100) y responde 429 al exceder en todas las etapas; ejecuta el autorizador de sesión y enruta a la función de cada servicio (`/auth`, `/dogs`, `/requests`, `/recommendation`). | RNF-23 |
+| AWS WAF | Asociado a CloudFront. Bloquea IP con más de 500 peticiones en 5 minutos y aplica reglas administradas contra ataques comunes. Las IP bloqueadas por tasa reciben **429**; las peticiones que bloquean las reglas administradas reciben 403. **Solo se activa en la etapa `prod`**, por costo (unos USD 9 al mes); en `dev` se omite y la limitación de API Gateway sigue activa. | RNF-23 |
+| Amazon API Gateway | Una API HTTP por microservicio (`<servicio>-api.<dominio>`). No admite WAF directo; por eso el WAF va en CloudFront. Cada API limita el tráfico a 50 peticiones por segundo (ráfagas de 100) y responde 429 al exceder, en todas las etapas, y ejecuta el autorizador de sesión. | RNF-23 |
 
 ### 3.5. Integración (adaptadores)
 
@@ -230,7 +230,7 @@ Consecuencias de que cada servicio sea dueño de sus datos:
 | Componente | Responsabilidad | Requisitos |
 |---|---|---|
 | Amazon CloudWatch | Registros y métricas de API Gateway y de las funciones. Los registros no contienen contraseñas, tokens ni teléfonos o correos completos. | RNF-08 |
-| AWS Budgets | Alertas por correo al 50 %, 80 % y 100 % del presupuesto mensual de AWS, fijado en **USD 15** (estimación en la sección 5.1). | RNF-24 |
+| AWS Budgets | Alertas por correo al 50 %, 80 % y 100 % del presupuesto mensual de AWS, fijado en **USD 25** (estimación en la sección 5.1). | RNF-24 |
 
 ---
 
@@ -285,7 +285,7 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 
 ### 4.5. Con el frontend
 
-- API REST en JSON por la ruta `/api` de CloudFront, con una ruta por servicio. **El frontend nunca orquesta entre servicios**: cada servicio compone lo que necesita de los demás (por ejemplo, `Dogs` pide los datos del publicador a `Auth`).
+- API REST en JSON por la ruta `/api/<servicio>` de CloudFront. **El frontend nunca orquesta entre servicios**: cada servicio compone lo que necesita de los demás (por ejemplo, `Dogs` pide los datos del publicador a `Auth`).
 - **Contrato de errores único** (código y mensaje en español), que incluye los casos de RNF-07 (404 idéntico para recursos inexistentes o eliminados) y RNF-23 (429).
 - **Estados de carga:** indicador de carga, *timeout* y cancelación en el cliente, y reintento automático solo en consultas. Esto cubre el *cold start* de hasta 8 s (RNF-01).
 - **Sesión:** viaja en una ***cookie* HttpOnly, Secure y SameSite=Strict**, que el navegador envía sola porque la aplicación y la API comparten dominio. El autorizador la valida contra `Auth` en cada petición (RNF-25). Contra CSRF, además, los servicios comprueban la cabecera `Origin` en toda petición que cambia datos.
@@ -310,7 +310,7 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 | Adaptadores para S3, SES e IA en una librería compartida | Cambiar de proveedor sin modificar el negocio. | RNF-13 |
 | Consultas síncronas; escrituras entre servicios por eventos (SNS + SQS + *outbox*) | Una escritura que cruza servicios no depende de que el otro esté disponible en ese momento: SQS reintenta, la DLQ guarda lo que falla y el *outbox* garantiza que el evento sale si el cambio se guardó. | RNF-11 |
 | Correos por cola; recomendaciones síncronas con *timeout* y respaldo | Si el correo falla, SQS lo reintenta sin perder el dato; si la IA falla, se muestran las recomendaciones de respaldo. | RNF-02, RNF-11, RNF-19 |
-| SST v3 como infraestructura como código | Un solo repositorio en TypeScript para todos los recursos, con una etapa por ambiente y despliegue por servicio. | RNF-13, RNF-18 |
+| SST v4 como infraestructura como código, un repositorio por servicio | Cada servicio se despliega sin coordinar con los demás; dos etapas (`dev` y `prod`). | RNF-13, RNF-18 |
 | Aurora Serverless v2 con Data API y pausa automática | Sin funciones en VPC, sin NAT ni RDS Proxy y sin costo de capacidad cuando no se usa. | RNF-01, RNF-18 |
 | Sesión en *cookie* HttpOnly, Secure y SameSite=Strict | El token no es accesible desde JavaScript; CloudFront sirve la aplicación y la API en el mismo dominio. | RNF-21, RNF-25 |
 | Indicador de carga en el cliente | Cold start aceptado por diseño (hasta 8 s en la primera petición). | RNF-01 |
@@ -319,18 +319,17 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 
 ### 5.1. Estimación de costo mensual
 
-Ambiente de pruebas en us-east-1, con poco tráfico (unas 10 000 peticiones al mes) y la base activa unas 2 horas al día. Son valores aproximados que deben confirmarse en la calculadora de precios de AWS.
+Las dos etapas viven en la misma cuenta de AWS (us-east-1), con poco tráfico (unas 10 000 peticiones al mes por etapa) y la base activa unas 2 horas al día. Son valores aproximados que deben confirmarse en la calculadora de precios de AWS.
 
-| Servicio | Al mes (aprox.) |
-|---|---|
-| Aurora Serverless v2 (pausa automática, más la tarea horaria del *outbox*) | USD 6 a 8 |
-| WAF (solo en producción) | USD 7 |
-| Secrets Manager (secreto de Aurora) | USD 0,40 |
-| Lambda, API Gateway, DynamoDB, SNS, SQS, S3, CloudFront, SES y CloudWatch | USD 0 a 1 (casi todo en la capa gratuita) |
-| **Total en desarrollo o pruebas (sin WAF)** | **unos USD 8** |
-| **Total en producción (con WAF)** | **unos USD 15** |
+| Servicio | `dev` | `prod` |
+|---|---|---|
+| Aurora Serverless v2 (pausa automática, más la tarea horaria del *outbox*) | USD 6 a 8 | USD 6 a 8 |
+| WAF (lista de reglas USD 5, más USD 1 por cada una de sus 4 reglas) | — | USD 9 |
+| Secrets Manager (secreto de Aurora) | USD 0,40 | USD 0,40 |
+| Lambda, API Gateway, DynamoDB, SNS, SQS, S3, CloudFront, SES, Route 53 y CloudWatch | USD 0 a 1 | USD 0 a 1 |
+| **Total** | **unos USD 8** | **unos USD 17** |
 
-El presupuesto mensual de AWS se fija en **USD 15** (RNF-24). El Servicio de IA se paga aparte en Google, con su propio tope de USD 5 (RNF-18).
+Total de la cuenta: **unos USD 25 al mes**, que es el presupuesto de AWS (RNF-24). Hoy, sin Aurora, el costo es de unos USD 10 (casi todo el WAF de `prod`). El Servicio de IA se paga aparte en Google, con su propio tope de USD 5 (RNF-18).
 
 ---
 
@@ -353,13 +352,32 @@ El presupuesto mensual de AWS se fija en **USD 15** (RNF-24). El Servicio de IA 
 | *Framework* de la aplicación web | React con Vite (TypeScript), publicado como archivos estáticos (§3.3). |
 | Acceso a datos | Drizzle ORM sobre la Data API de Aurora para `Dogs`; AWS SDK v3 (`DynamoDBDocumentClient`) para los demás (§3.6). |
 | Transporte de la sesión | *Cookie* HttpOnly, Secure y SameSite=Strict, con comprobación de `Origin` (§4.5). |
-| Infraestructura como código | SST v3, con una etapa por ambiente (§1). |
+| Infraestructura como código | SST v4, un repositorio por servicio, etapas `dev` y `prod` (§1 y §8). |
 | Red de la base de `Dogs` | Data API: ninguna función en VPC (§3.6). |
-| Costo de la base de `Dogs` y presupuesto | Aurora Serverless v2 con pausa automática; presupuesto de AWS de USD 15 al mes (§5.1). |
-| WAF | Solo en la etapa de producción (§3.4). |
+| Costo de la base de `Dogs` y presupuesto | Aurora Serverless v2 con pausa automática; presupuesto de AWS de USD 25 al mes, ajustado en I0.3 al sumar las dos etapas (§5.1). |
+| WAF | Solo en la etapa `prod` (§3.4). |
 | Servicio de IA | Google Gemini, modelo Flash-Lite estable vigente (§3.5). |
 | Comunicación entre servicios | Consultas síncronas; escrituras por eventos con SNS, SQS y *outbox* (§4). |
 | Tiempos límite y tamaño de foto | Tabla de la sección 4.4. |
 | Quién envía cada correo | `Auth` los enlaces; `Requests` los resultados de verificación (§3.5). |
 
 Queda pendiente el diseño detallado de claves e índices de DynamoDB (propuesta preliminar en `adog_MS.md`), que se resuelve en I0.4b.
+
+---
+
+## 8. Repositorios y ambientes
+
+Cada repositorio tiene su aplicación de SST y se enlaza como submódulo en `repos/`. Para clonar todo: `git clone --recurse-submodules`.
+
+| Repositorio | Contenido | `dev` | `prod` |
+|---|---|---|---|
+| `adogtame-infra` | CloudFront (`Router`), WAF (solo `prod`), bucket de fotos y rutas `/api/<servicio>` | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
+| `adogtame-web` | Aplicación web (React + Vite) | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
+| `adogtame-auth-ms` | Microservicio `Auth` | https://auth-api.dev.adogtame.vieerr.xyz | https://auth-api.adogtame.vieerr.xyz |
+| `adogtame-dogs-ms` | Microservicio `Dogs` | https://dogs-api.dev.adogtame.vieerr.xyz | https://dogs-api.adogtame.vieerr.xyz |
+| `adogtame-requests-ms` | Microservicio `Requests` | https://requests-api.dev.adogtame.vieerr.xyz | https://requests-api.adogtame.vieerr.xyz |
+| `adogtame-recommendation-ms` | Microservicio `Recommendation` | https://recommendation-api.dev.adogtame.vieerr.xyz | https://recommendation-api.adogtame.vieerr.xyz |
+
+- **Orden de despliegue:** primero `adogtame-infra` (publica en SSM el ID de la distribución y el nombre del bucket de fotos), luego `adogtame-web` y los microservicios.
+- **DNS:** los dominios son registros de la zona `vieerr.xyz` en Route 53; SST crea los registros y los certificados.
+- **Cuenta:** perfil de AWS `bier-personal`, región us-east-1.
