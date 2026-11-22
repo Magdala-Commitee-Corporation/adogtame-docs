@@ -126,7 +126,7 @@ La cuenta, su perfil (personal o institucional) y su rol se crean **juntos**: nu
 - Ocurre cuando un administrador **aprueba** la solicitud de verificación (RF-25, flujo A9).
 - El rol RESCATISTA **reemplaza** al rol MIEMBRO. No se agrega: nunca quedan los dos.
 - La fecha de asignación del nuevo rol es la de aprobación.
-- Rige de inmediato; el usuario no necesita volver a iniciar sesión.
+- Rige en cuanto `Auth` procesa el evento `RescatistaAprobado` (normalmente en segundos); el usuario no necesita volver a iniciar sesión.
 - La persona conserva su perfil, perros, favoritos, test y solicitudes.
 
 No existen otras transiciones: ni de RESCATISTA a MIEMBRO (una verificación aprobada no se revoca, RN-37), ni cambios hacia o desde REFUGIO o ADMINISTRADOR. Si un rescatista o refugio deja de cumplir, se elimina su cuenta (RN-09).
