@@ -190,7 +190,7 @@ Reglas de estas llamadas:
 |---|---|---|
 | Amazon CloudFront | Punto de entrada HTTPS; sirve los archivos de la aplicación (S3 sitio estático) y las fotos públicas (S3 fotos), y envía cada ruta `/api/<servicio>` a la API de ese microservicio, de modo que la aplicación y las APIs comparten dominio. Se define con el componente `Router` de SST. Aplica la política de seguridad de contenido (CSP). | RNF-05, RNF-21 |
 | Amazon S3 (sitio estático) | Aloja la aplicación compilada. | RNF-18 |
-| AWS WAF | Asociado a CloudFront. Bloquea IP con más de 500 peticiones en 5 minutos y aplica reglas administradas contra ataques comunes. Las IP bloqueadas por tasa reciben **429**; las peticiones que bloquean las reglas administradas reciben 403. **Solo se activa en la etapa `prod`**, por costo (unos USD 9 al mes); en `dev` se omite y la limitación de API Gateway sigue activa. | RNF-23 |
+| AWS WAF | Asociado a CloudFront. Bloquea IP con más de 500 peticiones en 5 minutos y aplica reglas administradas contra ataques comunes. Las IP bloqueadas por tasa reciben **429**; las peticiones que bloquean las reglas administradas reciben 403. Se activa solo en la etapa `prod`. **Hoy está desactivado** para mantener el costo en cero mientras no se revise el despliegue (unos USD 9 al mes); se probó en `prod` el 22 de noviembre de 2026 y se vuelve a activar cambiando `ENABLE_WAF` en `adogtame-infra`. Mientras tanto, la limitación de API Gateway sigue activa en todas las etapas. | RNF-23 |
 | Amazon API Gateway | Una API HTTP por microservicio (`<servicio>-api.<dominio>`). No admite WAF directo; por eso el WAF va en CloudFront. Cada API limita el tráfico a 50 peticiones por segundo (ráfagas de 100) y responde 429 al exceder, en todas las etapas, y ejecuta el autorizador de sesión. | RNF-23 |
 
 ### 3.5. Integración (adaptadores)
@@ -230,7 +230,7 @@ Consecuencias de que cada servicio sea dueño de sus datos:
 | Componente | Responsabilidad | Requisitos |
 |---|---|---|
 | Amazon CloudWatch | Registros y métricas de API Gateway y de las funciones. Los registros no contienen contraseñas, tokens ni teléfonos o correos completos. | RNF-08 |
-| AWS Budgets | Alertas por correo al 50 %, 80 % y 100 % del presupuesto mensual de AWS, fijado en **USD 25** (estimación en la sección 5.1). | RNF-24 |
+| AWS Budgets | Alertas por correo al 50 %, 80 % y 100 % del presupuesto mensual de AWS, fijado en **USD 20** (estimación en la sección 5.1). | RNF-24 |
 
 ---
 
@@ -245,7 +245,7 @@ Consecuencias de que cada servicio sea dueño de sus datos:
 
 ### 4.2. Eventos: SNS, SQS y *outbox*
 
-- **Temas y colas:** cada servicio que publica tiene **un tema SNS** (`Auth`, `Dogs` y `Requests`). Cada servicio que consume tiene **su cola SQS**, suscrita a los temas que le interesan con un **filtro por tipo de evento**, y una **cola de mensajes fallidos (DLQ)** tras 5 intentos. Se definen en SST con `sst.aws.SnsTopic`, `sst.aws.Queue` y `subscribeQueue`.
+- **Temas y colas:** cada servicio que publica tiene **un tema SNS** (`Auth`, `Dogs` y `Requests`), definido en `adogtame-infra` para que ningún microservicio dependa del despliegue de otro; su ARN se publica en SSM. Cada servicio que consume tiene **su cola SQS**, suscrita a los temas que le interesan con un **filtro por tipo de evento**, y una **cola de mensajes fallidos (DLQ)** tras 5 intentos. Se definen en SST con `sst.aws.SnsTopic`, `sst.aws.Queue` y `subscribeQueue`.
 - ***Outbox* en DynamoDB** (`Auth` y `Requests`): el cambio y el registro del evento se guardan en la **misma transacción** (`TransactWriteItems`). DynamoDB Streams entrega los registros nuevos del *outbox* a una función que los publica en SNS.
 - ***Outbox* en PostgreSQL** (`Dogs`): una tabla `outbox` se escribe en la **misma transacción** que el cambio. La función publica el evento justo después de confirmar la transacción y lo marca como enviado; una tarea programada cada hora reenvía los que hayan quedado pendientes. Esa tarea reactiva la base si estaba en pausa (efecto incluido en la estimación de costo).
 - **Contenido de un evento:** identificador único, tipo, fecha del cambio, identificador de la entidad, clave de idempotencia, identificador de petición y los datos mínimos para aplicarlo.
@@ -304,7 +304,7 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 | `Auth` unifica cuentas, sesiones, perfiles y roles | Están fuertemente acoplados; separarlos solo agregaría llamadas. | RNF-04, RNF-25 |
 | `Requests` agrupa solicitudes de adopción y de verificación | Mismo patrón de estados; un servicio y un despliegue menos; módulos internos separados. | RNF-13 |
 | Todo el tráfico por HTTPS vía CloudFront y API Gateway | Cifrado de extremo a extremo con cliente y servicios externos. | RNF-05 |
-| WAF en CloudFront solo en producción; *throttling* de API Gateway en todas las etapas | Protección perimetral y limitación de tráfico (429) donde hay usuarios reales, sin pagar el WAF en desarrollo y pruebas. | RNF-18, RNF-23 |
+| WAF en CloudFront solo en producción, hoy desactivado; *throttling* de API Gateway en todas las etapas | Protección perimetral y limitación de tráfico (429) donde hay usuarios reales, sin pagar el WAF mientras el sistema no tenga uso real. | RNF-18, RNF-23 |
 | Autorización en cada servicio, no en el cliente | Ocultar opciones en la interfaz no es seguridad. | RNF-04 |
 | Sesiones en la base de `Auth` con `token_hash` | Permite cerrar por inactividad y en todos los dispositivos sin estado en el servidor. | RNF-25 |
 | Adaptadores para S3, SES e IA en una librería compartida | Cambiar de proveedor sin modificar el negocio. | RNF-13 |
@@ -319,17 +319,17 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 
 ### 5.1. Estimación de costo mensual
 
-Las dos etapas viven en la misma cuenta de AWS (us-east-1), con poco tráfico (unas 10 000 peticiones al mes por etapa) y la base activa unas 2 horas al día. Son valores aproximados que deben confirmarse en la calculadora de precios de AWS.
+Las dos etapas viven en la misma cuenta de AWS (us-east-1). El objetivo es mantener el costo **en el mínimo posible** mientras el sistema no tenga uso real.
 
-| Servicio | `dev` | `prod` |
+| Servicio | Hoy | Con Aurora (I0.4) |
 |---|---|---|
-| Aurora Serverless v2 (pausa automática, más la tarea horaria del *outbox*) | USD 6 a 8 | USD 6 a 8 |
-| WAF (lista de reglas USD 5, más USD 1 por cada una de sus 4 reglas) | — | USD 9 |
-| Secrets Manager (secreto de Aurora) | USD 0,40 | USD 0,40 |
-| Lambda, API Gateway, DynamoDB, SNS, SQS, S3, CloudFront, SES, Route 53 y CloudWatch | USD 0 a 1 | USD 0 a 1 |
-| **Total** | **unos USD 8** | **unos USD 17** |
+| Aurora Serverless v2 (pausa automática, más la tarea horaria del *outbox*), por etapa | — | USD 6 a 8 |
+| Secrets Manager (secreto de Aurora), por etapa | — | USD 0,40 |
+| WAF (desactivado; USD 5 más USD 1 por cada una de sus 4 reglas) | — | — |
+| Lambda, API Gateway, DynamoDB, SNS, SQS, S3, CloudFront, SES y CloudWatch | USD 0 a 1 (capa gratuita) | USD 0 a 1 |
+| **Total de la cuenta** | **menos de USD 1** | **unos USD 13 a 18** (dos etapas) |
 
-Total de la cuenta: **unos USD 25 al mes**, que es el presupuesto de AWS (RNF-24). Hoy, sin Aurora, el costo es de unos USD 10 (casi todo el WAF de `prod`). El Servicio de IA se paga aparte en Google, con su propio tope de USD 5 (RNF-18).
+El presupuesto mensual de AWS se fija en **USD 20** (RNF-24). Para bajar más el costo con Aurora, la etapa `prod` puede quedar sin base hasta que se necesite. Si se activa el WAF, suma unos USD 9. El Servicio de IA se paga aparte en Google, con su propio tope de USD 5 (RNF-18). Son valores aproximados que deben confirmarse en la calculadora de precios de AWS.
 
 ---
 
@@ -354,8 +354,8 @@ Total de la cuenta: **unos USD 25 al mes**, que es el presupuesto de AWS (RNF-24
 | Transporte de la sesión | *Cookie* HttpOnly, Secure y SameSite=Strict, con comprobación de `Origin` (§4.5). |
 | Infraestructura como código | SST v4, un repositorio por servicio, etapas `dev` y `prod` (§1 y §8). |
 | Red de la base de `Dogs` | Data API: ninguna función en VPC (§3.6). |
-| Costo de la base de `Dogs` y presupuesto | Aurora Serverless v2 con pausa automática; presupuesto de AWS de USD 25 al mes, ajustado en I0.3 al sumar las dos etapas (§5.1). |
-| WAF | Solo en la etapa `prod` (§3.4). |
+| Costo de la base de `Dogs` y presupuesto | Aurora Serverless v2 con pausa automática; presupuesto de AWS de USD 20 al mes, ajustado en I0.3 al sumar las dos etapas (§5.1). |
+| WAF | Solo en la etapa `prod`; desactivado hasta que se necesite (§3.4). |
 | Servicio de IA | Google Gemini, modelo Flash-Lite estable vigente (§3.5). |
 | Comunicación entre servicios | Consultas síncronas; escrituras por eventos con SNS, SQS y *outbox* (§4). |
 | Tiempos límite y tamaño de foto | Tabla de la sección 4.4. |
@@ -371,7 +371,7 @@ Cada repositorio tiene su aplicación de SST y se enlaza como submódulo en `rep
 
 | Repositorio | Contenido | `dev` | `prod` |
 |---|---|---|---|
-| `adogtame-infra` | CloudFront (`Router`), WAF (solo `prod`), bucket de fotos y rutas `/api/<servicio>` | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
+| `adogtame-infra` | CloudFront (`Router`), WAF (definido, desactivado), bucket de fotos, temas SNS y rutas `/api/<servicio>` | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
 | `adogtame-web` | Aplicación web (React + Vite) | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
 | `adogtame-auth-ms` | Microservicio `Auth` | https://auth-api.dev.adogtame.vieerr.xyz | https://auth-api.adogtame.vieerr.xyz |
 | `adogtame-dogs-ms` | Microservicio `Dogs` | https://dogs-api.dev.adogtame.vieerr.xyz | https://dogs-api.adogtame.vieerr.xyz |

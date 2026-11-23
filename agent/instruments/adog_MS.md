@@ -465,7 +465,7 @@ Decididos antes: los dos datos replicados (`id_publicador` y `publicador_elimina
 
 | # | Punto | Decisión |
 |---|---|---|
-| 1 | Motor relacional de `Dogs` y costo | Aurora Serverless v2 con Data API y pausa automática; presupuesto de AWS de USD 25 al mes (las dos etapas) (`adog_ARCH.md` §3.6 y §5.1). |
+| 1 | Motor relacional de `Dogs` y costo | Aurora Serverless v2 con Data API y pausa automática; presupuesto de AWS de USD 20 al mes (las dos etapas) (`adog_ARCH.md` §3.6 y §5.1). |
 | 2 | Quién envía cada correo | `Auth` envía todos los enlaces, incluido el aviso de aprobación del refugio; `Requests` envía los resultados de verificación (flujos F2 y F3). |
 | 3 | Solicitud de rescatista pendiente de una cuenta dada de baja | Pasa a **rechazada** al consumir `CuentaEliminada`, igual que las de adopción (RN-10). Si la cuenta se restaura, no se reabre. |
 | 4 | Orden de las fotos al publicar | Las fotos se suben antes, de una en una, con clave temporal; al crear el perro se pasan las claves (`adog_ARCH.md` §4.5). |
