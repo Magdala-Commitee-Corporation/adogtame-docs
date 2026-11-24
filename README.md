@@ -9,7 +9,7 @@ Este repositorio es la **fuente de verdad de la especificación** de Adogtame V2
 | ERS (`Adog_ERS.docx`) | Requisitos de software. **Prevalece sobre todo lo demás.** |
 | `adog_RF.md`, `adog_RNF.md`, `adog_RN.md`, `adog_CU.md` | Requisitos funcionales, no funcionales, reglas de negocio y casos de uso. |
 | `adog_ARCH.md` | Arquitectura. Prevalece sobre `adog_MS.md` en decisiones de arquitectura. |
-| `adog_MER.md` | Modelo de datos: cada microservicio posee su propia base de datos (Dogs en PostgreSQL/Aurora Serverless; Auth, Requests y Recommendation en DynamoDB), sin claves foráneas ni JOIN entre servicios. |
+| `adog_MER.md` | Modelo de datos: cada microservicio posee su propia base de datos (Auth y Dogs en PostgreSQL/Aurora Serverless, un cluster con una base cada uno; sesiones de Auth, Requests y Recommendation en DynamoDB), sin claves foráneas ni JOIN entre servicios. |
 | `adog_MS.md` | Detalle de los 4 microservicios (`Auth`, `Dogs`, `Requests`, `Recommendation`), llamadas internas y flujos F1 a F8. |
 | `adog_CLS.md` | Modelo conceptual de funciones por paquete. |
 | `adog_REC.md` | Módulo de recomendación (fórmula, IA, plantillas). |

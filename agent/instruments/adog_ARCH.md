@@ -9,7 +9,7 @@
 ## 1. Resumen y estilo arquitectónico
 
 - **Estilo:** aplicación web desplegada en **AWS serverless** (RNF-18) con un backend de **4 microservicios**: `Auth`, `Dogs`, `Requests` y `Recommendation`. Cada uno es una función AWS Lambda con **despliegue propio e independiente**, detrás de una API REST común. La aplicación web (frontend) no es un microservicio.
-- **Propiedad de los datos (base de datos por servicio):** cada microservicio es **dueño de sus datos**: tiene su propia base de datos y es el único que la lee y escribe. Ningún servicio accede a la base de otro; lo que necesita lo pide por su API. **No hay claves foráneas, JOIN ni transacciones entre servicios.** El almacenamiento es **políglota**, con el motor que mejor encaja con cada servicio y con el menor costo: `Dogs` usa una base **relacional** (PostgreSQL en Amazon Aurora Serverless) por sus listados con filtros combinados; `Auth`, `Requests` y `Recommendation` usan tablas de **Amazon DynamoDB** (bajo demanda, con cobro por uso). El acceso se controla con permisos IAM por servicio (DynamoDB) y con credenciales propias (PostgreSQL). Cuando el diagrama habla de un «cluster», se refiere solo a la infraestructura que aloja la base de `Dogs`; **no es una base compartida**.
+- **Propiedad de los datos (base de datos por servicio):** cada microservicio es **dueño de sus datos**: tiene su propia base de datos y es el único que la lee y escribe. Ningún servicio accede a la base de otro; lo que necesita lo pide por su API. **No hay claves foráneas, JOIN ni transacciones entre servicios.** El almacenamiento es **políglota**, con el motor que mejor encaja con cada servicio y con el menor costo: `Dogs` y `Auth` usan bases **relacionales** (PostgreSQL), cada una con su propia base de datos dentro de **un mismo cluster** de Amazon Aurora Serverless; `Auth` guarda además sus sesiones y enlaces de correo en una tabla de **Amazon DynamoDB** por su expiración automática. `Requests` y `Recommendation` usan tablas de DynamoDB (bajo demanda, con cobro por uso). El acceso se controla con permisos IAM por servicio (DynamoDB y Data API). El cluster es solo la infraestructura que aloja las bases `auth` y `dogs`: **ningún servicio lee ni escribe la base del otro**.
 - **Comunicación mixta:** las **consultas** entre servicios son síncronas, con límite de tiempo; las **escrituras que cruzan servicios** viajan como **eventos** por Amazon SNS y Amazon SQS, publicados con el patrón *outbox* (sección 4).
 - **Lenguaje y paradigma:** TypeScript en cliente y servidor. El servidor usa **programación funcional**: **no se implementan clases reales**; el comportamiento son funciones que reciben datos y devuelven datos (las «clases» de `adog_CLS.md` son un modelo conceptual y sus operaciones se implementan como funciones).
 - **Integraciones aisladas:** el almacenamiento de imágenes, el envío de correos y el Servicio de IA se acceden solo mediante **adaptadores**, que forman una **librería compartida** (no un servicio): un tipo de contrato y un módulo de funciones que lo cumple, recibido como parámetro, de modo que el proveedor pueda cambiarse sin tocar el negocio (RNF-13). La librería compartida incluye también el cliente de comunicación entre servicios y el contrato de errores (sección 4).
@@ -24,9 +24,9 @@
 |---|---|
 | Nombre | Diagrama de componentes del sistema Adogtame |
 | Objetivo | Mostrar cómo se organiza todo el sistema, qué microservicios y servicios de AWS intervienen, qué datos posee cada uno y por dónde viaja cada petición, desde el navegador hasta la base de datos y los servicios externos. |
-| Elementos principales | **Capas:** presentación, entrega y perímetro, microservicios, integración (librería compartida), datos y servicios externos. **Componentes:** navegador y aplicación web; CloudFront, S3, WAF (solo en producción) y API Gateway (HTTP API); cuatro microservicios en Lambda (`Auth`, `Dogs`, `Requests`, `Recommendation`); tres adaptadores; una base de datos por servicio (PostgreSQL en Aurora Serverless para `Dogs` y tablas DynamoDB para `Auth`, `Requests` y `Recommendation`) y S3 (fotos); SNS y SQS para los eventos; SES y Servicio de IA (Google Gemini); CloudWatch. |
+| Elementos principales | **Capas:** presentación, entrega y perímetro, microservicios, integración (librería compartida), datos y servicios externos. **Componentes:** navegador y aplicación web; CloudFront, S3, WAF (solo en producción) y API Gateway (HTTP API); cuatro microservicios en Lambda (`Auth`, `Dogs`, `Requests`, `Recommendation`); tres adaptadores; una base de datos por servicio (bases PostgreSQL `auth` y `dogs` en un cluster de Aurora Serverless; tablas DynamoDB para las sesiones de `Auth`, `Requests` y `Recommendation`) y S3 (fotos); SNS y SQS para los eventos; SES y Servicio de IA (Google Gemini); CloudWatch. |
 | Reglas aplicadas | Todo el tráfico va por HTTPS y entra por CloudFront (con WAF en producción) hacia API Gateway (50 peticiones/s, 429 al exceder). Cada servicio autoriza por rol y propiedad y accede solo a su propia base de datos. Las consultas entre servicios son síncronas y las escrituras que cruzan servicios son eventos; ambas se resumen en la sección 3.2. Los servicios externos se acceden únicamente por adaptadores. |
-| Justificación | Separa las responsabilidades por dominio con propiedad de datos y despliegue independiente, hace visible dónde se cumple cada RNF (seguridad, costo, disponibilidad, sustitución de proveedores) y se mantiene barato: solo `Dogs` requiere una base relacional con costo fijo; los demás servicios usan DynamoDB bajo demanda. |
+| Justificación | Separa las responsabilidades por dominio con propiedad de datos y despliegue independiente, hace visible dónde se cumple cada RNF (seguridad, costo, disponibilidad, sustitución de proveedores) y se mantiene barato: las bases relacionales de `Auth` y `Dogs` comparten un cluster que se pausa sin uso; los demás servicios usan DynamoDB bajo demanda. |
 | Imagen | El diagrama completo está en el bloque Mermaid de abajo. |
 
 ```mermaid
@@ -62,8 +62,8 @@ flowchart TB
     end
 
     subgraph DAT["Capa de datos"]
-        SAUTH[("DynamoDB<br/>tablas de Auth")]
-        SDOGS[("PostgreSQL de Dogs<br/>(Aurora Serverless v2, Data API)")]
+        SAUTH[("PostgreSQL de Auth (base auth)<br/>+ DynamoDB de sesiones")]
+        SDOGS[("PostgreSQL de Dogs (base dogs)<br/>(Aurora Serverless v2, Data API)")]
         SREQS[("DynamoDB<br/>tablas de Requests")]
         SREC[("DynamoDB<br/>tablas de Recommendation")]
         S3F[("Amazon S3<br/>fotos")]
@@ -136,7 +136,7 @@ Cada microservicio agrupa los casos de uso de un dominio. Todos validan y saniti
 | Microservicios (Lambda) | Ejecutan las reglas de cada dominio. | Funciones TypeScript sin estado; despliegue independiente; base de datos propia. |
 | Mensajería (SNS + SQS) | Lleva los eventos de las escrituras que cruzan servicios. | Un tema SNS por servicio que publica; una cola SQS por consumidor, con filtro por tipo de evento y cola de mensajes fallidos (DLQ). |
 | Librería compartida | Adaptadores (S3, SES, IA), cliente interno, contrato de errores, validación y sanitización. | No es un servicio; se incluye en cada despliegue. Cambiar de proveedor no toca la lógica de negocio (RNF-13). |
-| Bases de datos (una por servicio) | PostgreSQL en Aurora Serverless para `Dogs`; tablas DynamoDB para `Auth`, `Requests` y `Recommendation`. Entre las cuatro se reparten las 15 entidades del MER. | Cada servicio es dueño de su base; sin FK, JOIN ni transacciones entre bases; borrado lógico. |
+| Bases de datos (una por servicio) | PostgreSQL en Aurora Serverless para `Auth` y `Dogs` (una base cada uno en el mismo cluster); tablas DynamoDB para las sesiones de `Auth`, `Requests` y `Recommendation`. Entre ellas se reparten las 15 entidades del MER. | Cada servicio es dueño de su base; sin FK, JOIN ni transacciones entre bases; borrado lógico. |
 | Almacenamiento de fotos (S3 + CloudFront) | Guarda y sirve las imágenes públicas. | La base solo guarda la clave del archivo. |
 | Perímetro (CloudFront, WAF) | Entrega HTTPS, filtra tráfico malicioso. El WAF se activa solo en producción. | Primera línea de defensa (RNF-05, RNF-23). |
 | Observabilidad (CloudWatch, Budgets) | Registros, métricas y alertas de gasto. | Los registros no incluyen datos personales (RNF-08). |
@@ -211,8 +211,9 @@ Cada microservicio posee su base de datos. El modelo conceptual de `adog_MER.md`
 
 | Microservicio | Almacén | Entidades | Por qué este motor | Requisitos |
 |---|---|---|---|---|
-| `Dogs` | PostgreSQL en Amazon Aurora Serverless v2 (**relacional**), con Data API y pausa automática | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` | Listados con 9 filtros combinables, integridad entre perros, fotos y catálogos. Es el único almacén con costo fijo. | RNF-01, RNF-10, RNF-18, RNF-20 |
-| `Auth` | Amazon DynamoDB (bajo demanda) | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` | Accesos por clave (id, correo, token, sesión), expiración automática de enlaces y sesiones, sin costo en reposo. | RNF-03, RNF-06, RNF-10, RNF-25 |
+| `Dogs` | PostgreSQL en Amazon Aurora Serverless v2 (**relacional**, base `dogs`), con Data API y pausa automática | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` | Listados con 9 filtros combinables, integridad entre perros, fotos y catálogos. | RNF-01, RNF-10, RNF-18, RNF-20 |
+| `Auth` | PostgreSQL en el mismo cluster de Aurora (**relacional**, base `auth`) | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO` | Integridad entre cuenta, rol y perfil (claves foráneas, `UNIQUE` del correo, `CHECK`); la asignatura pide el modelo de identidad en una base relacional. | RNF-03, RNF-10, RNF-20 |
+| `Auth` (sesiones) | Amazon DynamoDB (bajo demanda), tabla `auth-sessions` | `TOKEN_CORREO`, `SESION` | Acceso por hash, expiración automática con TTL y sin despertar la base relacional para validar cada sesión. | RNF-06, RNF-25 |
 | `Requests` | Amazon DynamoDB (bajo demanda) | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` | Accesos por solicitante, publicador, perro y estado; unicidad de pendientes con escrituras condicionales. | RNF-10, RNF-11 |
 | `Recommendation` | Amazon DynamoDB (bajo demanda) | `PERFIL_ADOPTANTE` | Un registro por persona. | RNF-10, RNF-18 |
 | Fotos | Amazon S3 | Archivos de las fotos de perros, de perfil y de solicitudes de refugio; cada base guarda solo la clave de almacenamiento. | Almacenamiento de objetos. | RNF-22 |
@@ -221,9 +222,13 @@ Consecuencias de que cada servicio sea dueño de sus datos:
 - **Referencias entre servicios:** se guardan por identificador, sin integridad automática; el dato se pide al servicio dueño, en lote, al consultarlo (`adog_MER.md`, referencias lógicas). Como los usuarios y los perros nunca se borran físicamente (RNF-10), no quedan referencias huérfanas.
 - **Datos replicados mínimos:** solo los que no se pueden pedir sin acoplar las bases: `id_publicador` en la solicitud de adopción y la marca `publicador_eliminado` en el perro (decididos en `adog_MER.md`).
 - **Consistencia:** sin transacciones entre servicios, las operaciones que los cruzan se recuperan con idempotencia y reintento (sección 4.3); entre un paso y otro puede haber una inconsistencia temporal aceptada.
-- **Costos y red:** solo `Dogs` tiene un costo fijo (el almacenamiento y la capacidad mientras la base está activa). Con la pausa automática (capacidad mínima de 0 ACU), la base se detiene cuando no se usa. La función de `Dogs` accede a Aurora por la **Data API** (HTTPS), así que **ninguna función se ubica en una VPC** ni requiere NAT o RDS Proxy, y el arranque en frío no empeora. La base sí vive en una VPC que crea SST, sin acceso público.
-- **Reanudación de la base:** tras una pausa, la Data API responde un error de reanudación durante unos segundos. El acceso a datos de `Dogs` reintenta con espera creciente dentro del límite de la petición y, si no alcanza, responde `DEPENDENCIA_NO_DISPONIBLE`.
-- **Acceso a datos:** `Dogs` usa **Drizzle ORM** sobre la Data API; `Auth`, `Requests` y `Recommendation` usan el **AWS SDK v3** (`DynamoDBDocumentClient`), sin librerías adicionales.
+- **Un cluster, dos bases:** el cluster de Aurora lo crea `adogtame-infra` y publica su ARN y el del secreto en SSM. Dentro hay una base por servicio (`auth` y `dogs`); cada servicio solo se conecta a la suya. Se usa **un solo secreto** (el del usuario maestro, USD 0,40 al mes): la separación es por base de datos y por permisos IAM, no por usuario de PostgreSQL. Un usuario por servicio costaría USD 0,40 más cada uno y se puede agregar si el proyecto lo exige.
+- **Costos y red:** el cluster tiene capacidad mínima de **0 ACU** y se pausa a los 5 minutos sin conexiones; pausado solo se paga el almacenamiento (centavos). **Nada programado lo despierta**: las sesiones están en DynamoDB y el *outbox* no usa tareas periódicas (§4.2). Las funciones acceden a Aurora por la **Data API** (HTTPS), así que **ninguna función se ubica en una VPC** ni requiere NAT o RDS Proxy, y el arranque en frío no empeora. La base sí vive en una VPC que crea SST, sin NAT y sin acceso público.
+- **Solo en `dev` por ahora:** la etapa `prod` no tiene cluster hasta que se necesite; mientras tanto, `Auth` y `Dogs` responden `DEPENDENCIA_NO_DISPONIBLE` en las operaciones que lo usan. Activarlo es cambiar una lista en `adogtame-infra`, desplegar y correr las migraciones.
+- **Regenerable:** el esquema vive en el repositorio de cada servicio como migraciones de Drizzle, más un *seed* con los catálogos. Si el cluster se borra, se recrea con `sst deploy`, `db:bootstrap` (crea las bases) y `db:migrate` + `db:seed` en cada servicio.
+- **Reanudación de la base:** tras una pausa, la Data API responde un error de reanudación durante unos 15 segundos. El acceso a datos reintenta con espera creciente dentro del límite de la petición y, si no alcanza, responde `DEPENDENCIA_NO_DISPONIBLE`.
+- **Acceso a datos:** `Auth` y `Dogs` usan **Drizzle ORM** sobre la Data API; las tablas DynamoDB (sesiones de `Auth`, `Requests` y `Recommendation`) usan el **AWS SDK v3** (`DynamoDBDocumentClient`), sin librerías adicionales.
+- **Desarrollo local sin Docker:** `sst dev` corre las funciones en la máquina conectadas a los recursos reales de la etapa `dev`. Las pruebas de integración usan **PGlite** (PostgreSQL compilado a WASM dentro de Node) con las mismas migraciones, sin AWS ni Docker.
 
 ### 3.7. Transversales
 
@@ -246,8 +251,8 @@ Consecuencias de que cada servicio sea dueño de sus datos:
 ### 4.2. Eventos: SNS, SQS y *outbox*
 
 - **Temas y colas:** cada servicio que publica tiene **un tema SNS** (`Auth`, `Dogs` y `Requests`), definido en `adogtame-infra` para que ningún microservicio dependa del despliegue de otro; su ARN se publica en SSM. Cada servicio que consume tiene **su cola SQS**, suscrita a los temas que le interesan con un **filtro por tipo de evento**, y una **cola de mensajes fallidos (DLQ)** tras 5 intentos. Se definen en SST con `sst.aws.SnsTopic`, `sst.aws.Queue` y `subscribeQueue`.
-- ***Outbox* en DynamoDB** (`Auth` y `Requests`): el cambio y el registro del evento se guardan en la **misma transacción** (`TransactWriteItems`). DynamoDB Streams entrega los registros nuevos del *outbox* a una función que los publica en SNS.
-- ***Outbox* en PostgreSQL** (`Dogs`): una tabla `outbox` se escribe en la **misma transacción** que el cambio. La función publica el evento justo después de confirmar la transacción y lo marca como enviado; una tarea programada cada hora reenvía los que hayan quedado pendientes. Esa tarea reactiva la base si estaba en pausa (efecto incluido en la estimación de costo).
+- ***Outbox* en DynamoDB** (`Requests`): el cambio y el registro del evento se guardan en la **misma transacción** (`TransactWriteItems`). DynamoDB Streams entrega los registros nuevos del *outbox* a una función que los publica en SNS.
+- ***Outbox* en PostgreSQL** (`Auth` y `Dogs`): una tabla `outbox` se escribe en la **misma transacción** que el cambio. La función publica el evento justo después de confirmar la transacción y lo marca como enviado. Si la publicación falla, el evento queda pendiente y **la siguiente invocación del servicio que use la base** lo reenvía antes de responder (con un límite por invocación). No hay tarea programada: una tarea periódica despertaría la base pausada (unos USD 3 a 4 al mes por cada una). A cambio, un evento pendiente puede tardar hasta la siguiente petición en salir.
 - **Contenido de un evento:** identificador único, tipo, fecha del cambio, identificador de la entidad, clave de idempotencia, identificador de petición y los datos mínimos para aplicarlo.
 - **Entrega al menos una vez:** SQS puede entregar un evento más de una vez, por lo que **todo consumidor es idempotente** (clave de idempotencia, como el id de la solicitud o del usuario).
 - **Sin orden garantizado:** los eventos pueden llegar desordenados (por ejemplo, `CuentaRestaurada` antes que `CuentaEliminada`). El consumidor compara la fecha del cambio con la última que aplicó a esa entidad e ignora los eventos más antiguos.
@@ -299,19 +304,20 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 |---|---|---|
 | Despliegue 100 % serverless (Lambda, DynamoDB, Aurora Serverless, S3) | Cobro por uso y costo acotado; el servicio de IA no supera USD 5 al mes. | RNF-18 |
 | 4 microservicios, cada uno dueño de su base de datos | Autonomía real de los datos: cada servicio evoluciona y se despliega sin coordinar esquemas con otro. | RNF-13 |
-| Almacenamiento políglota: PostgreSQL para `Dogs` y DynamoDB para `Auth`, `Requests` y `Recommendation` | Cada motor se usa donde encaja (filtros combinados frente a accesos por clave), la asignatura exige al menos un esquema relacional y solo uno tiene costo fijo. | RNF-18 |
+| Almacenamiento políglota: PostgreSQL para `Auth` y `Dogs` (una base cada uno en un cluster compartido) y DynamoDB para las sesiones de `Auth`, `Requests` y `Recommendation` | Cada motor se usa donde encaja (integridad relacional y filtros combinados frente a accesos por clave con expiración); la asignatura pide el modelo de identidad en una base relacional; un solo cluster pausado mantiene el costo en centavos. | RNF-18 |
 | Datos replicados mínimos (`id_publicador`, `publicador_eliminado`) | Evita llamadas entre servicios en cada listado y en las bajas de cuenta. | RNF-01, RNF-07 |
 | `Auth` unifica cuentas, sesiones, perfiles y roles | Están fuertemente acoplados; separarlos solo agregaría llamadas. | RNF-04, RNF-25 |
 | `Requests` agrupa solicitudes de adopción y de verificación | Mismo patrón de estados; un servicio y un despliegue menos; módulos internos separados. | RNF-13 |
 | Todo el tráfico por HTTPS vía CloudFront y API Gateway | Cifrado de extremo a extremo con cliente y servicios externos. | RNF-05 |
 | WAF en CloudFront solo en producción, hoy desactivado; *throttling* de API Gateway en todas las etapas | Protección perimetral y limitación de tráfico (429) donde hay usuarios reales, sin pagar el WAF mientras el sistema no tenga uso real. | RNF-18, RNF-23 |
 | Autorización en cada servicio, no en el cliente | Ocultar opciones en la interfaz no es seguridad. | RNF-04 |
-| Sesiones en la base de `Auth` con `token_hash` | Permite cerrar por inactividad y en todos los dispositivos sin estado en el servidor. | RNF-25 |
+| Sesiones y enlaces de correo de `Auth` en DynamoDB con `token_hash` y TTL | Permite cerrar por inactividad y en todos los dispositivos sin estado en el servidor; validar una sesión no despierta Aurora y la limpieza es gratuita. | RNF-25 |
 | Adaptadores para S3, SES e IA en una librería compartida | Cambiar de proveedor sin modificar el negocio. | RNF-13 |
 | Consultas síncronas; escrituras entre servicios por eventos (SNS + SQS + *outbox*) | Una escritura que cruza servicios no depende de que el otro esté disponible en ese momento: SQS reintenta, la DLQ guarda lo que falla y el *outbox* garantiza que el evento sale si el cambio se guardó. | RNF-11 |
 | Correos por cola; recomendaciones síncronas con *timeout* y respaldo | Si el correo falla, SQS lo reintenta sin perder el dato; si la IA falla, se muestran las recomendaciones de respaldo. | RNF-02, RNF-11, RNF-19 |
 | SST v4 como infraestructura como código, un repositorio por servicio | Cada servicio se despliega sin coordinar con los demás; dos etapas (`dev` y `prod`). | RNF-13, RNF-18 |
-| Aurora Serverless v2 con Data API y pausa automática | Sin funciones en VPC, sin NAT ni RDS Proxy y sin costo de capacidad cuando no se usa. | RNF-01, RNF-18 |
+| Aurora Serverless v2 con Data API y pausa automática (0 ACU), un cluster para `Auth` y `Dogs` | Sin funciones en VPC, sin NAT ni RDS Proxy, sin costo de capacidad cuando no se usa y un solo secreto. | RNF-01, RNF-18 |
+| *Outbox* de PostgreSQL sin tarea periódica | Los pendientes se reenvían en la siguiente petición; nada despierta la base sin usuarios. | RNF-11, RNF-18 |
 | Sesión en *cookie* HttpOnly, Secure y SameSite=Strict | El token no es accesible desde JavaScript; CloudFront sirve la aplicación y la API en el mismo dominio. | RNF-21, RNF-25 |
 | Indicador de carga en el cliente | Cold start aceptado por diseño (hasta 8 s en la primera petición). | RNF-01 |
 | Profundidad máxima de dos saltos y consultas en lote | Limita la acumulación de *cold starts*. | RNF-01 |
@@ -321,15 +327,16 @@ Los límites se fijan al máximo que permite AWS. Cada nivel queda por debajo de
 
 Las dos etapas viven en la misma cuenta de AWS (us-east-1). El objetivo es mantener el costo **en el mínimo posible** mientras el sistema no tenga uso real.
 
-| Servicio | Hoy | Con Aurora (I0.4) |
+| Servicio | Antes de I0.4 | Con Aurora solo en `dev` (I0.4) |
 |---|---|---|
-| Aurora Serverless v2 (pausa automática, más la tarea horaria del *outbox*), por etapa | — | USD 6 a 8 |
-| Secrets Manager (secreto de Aurora), por etapa | — | USD 0,40 |
+| Aurora Serverless v2 (0 ACU, pausa a los 5 min; solo almacenamiento en pausa) | — | centavos, más unos USD 0,06 por cada hora de uso real |
+| Secrets Manager (un secreto, el del usuario maestro) | — | USD 0,40 |
+| Data API | — | USD 0,35 por millón de peticiones (prácticamente 0) |
 | WAF (desactivado; USD 5 más USD 1 por cada una de sus 4 reglas) | — | — |
 | Lambda, API Gateway, DynamoDB, SNS, SQS, S3, CloudFront, SES y CloudWatch | USD 0 a 1 (capa gratuita) | USD 0 a 1 |
-| **Total de la cuenta** | **menos de USD 1** | **unos USD 13 a 18** (dos etapas) |
+| **Total de la cuenta** | **menos de USD 1** | **unos USD 1 a 2** |
 
-El presupuesto mensual de AWS se fija en **USD 20** (RNF-24). Para bajar más el costo con Aurora, la etapa `prod` puede quedar sin base hasta que se necesite. Si se activa el WAF, suma unos USD 9. El Servicio de IA se paga aparte en Google, con su propio tope de USD 5 (RNF-18). Son valores aproximados que deben confirmarse en la calculadora de precios de AWS.
+El presupuesto mensual de AWS se fija en **USD 20** (RNF-24). La etapa `prod` no tiene cluster hasta que se necesite; con él suma lo mismo que `dev`. Lo que más mueve el costo es cuánto tiempo pasa la base despierta: cada vez que despierta corre al menos 5 minutos a 0,5 ACU, por eso no se programan tareas que la usen. Si se activa el WAF, suma unos USD 9. El Servicio de IA se paga aparte en Google, con su propio tope de USD 5 (RNF-18). Son valores aproximados que deben confirmarse en la calculadora de precios de AWS.
 
 ---
 
@@ -340,7 +347,7 @@ El presupuesto mensual de AWS se fija en **USD 20** (RNF-24). Para bajar más el
 | Cliente | Escape de salida, sin HTML en campos, CSP sin scripts en línea (RNF-21). |
 | Perímetro | HTTPS, WAF en producción, *throttling* en todas las etapas (RNF-05, RNF-23). |
 | Negocio | Sesión en *cookie* HttpOnly, Secure y SameSite=Strict con comprobación de `Origin` contra CSRF (RNF-25), autorización por rol y propiedad, validación y sanitización, contraseñas con hash y sal, enlaces de un solo uso con caducidad, textos del usuario enviados a la IA como datos y no como instrucciones; las llamadas entre servicios solo se aceptan de otros servicios de Adogtame (RNF-03, RNF-04, RNF-06, RNF-19). |
-| Datos | Consultas parametrizadas u ORM (PostgreSQL) y expresiones con valores enlazados (DynamoDB), permisos IAM por servicio y credenciales propias para PostgreSQL, borrado lógico, tokens y sesiones solo como hash (RNF-03, RNF-04, RNF-10, RNF-20). |
+| Datos | Consultas parametrizadas u ORM (PostgreSQL) y expresiones con valores enlazados (DynamoDB), permisos IAM por servicio y una base de datos por servicio en PostgreSQL, borrado lógico, tokens y sesiones solo como hash (RNF-03, RNF-04, RNF-10, RNF-20). |
 | Archivos | Validación por contenido, nombre generado, sin metadatos ni ejecución (RNF-22). |
 
 ---
@@ -350,18 +357,29 @@ El presupuesto mensual de AWS se fija en **USD 20** (RNF-24). Para bajar más el
 | Punto | Decisión |
 |---|---|
 | *Framework* de la aplicación web | React con Vite (TypeScript), publicado como archivos estáticos (§3.3). |
-| Acceso a datos | Drizzle ORM sobre la Data API de Aurora para `Dogs`; AWS SDK v3 (`DynamoDBDocumentClient`) para los demás (§3.6). |
+| Acceso a datos | Drizzle ORM sobre la Data API de Aurora para `Auth` y `Dogs`; AWS SDK v3 (`DynamoDBDocumentClient`) para las tablas DynamoDB (§3.6; actualizado en I0.4). |
 | Transporte de la sesión | *Cookie* HttpOnly, Secure y SameSite=Strict, con comprobación de `Origin` (§4.5). |
 | Infraestructura como código | SST v4, un repositorio por servicio, etapas `dev` y `prod` (§1 y §8). |
-| Red de la base de `Dogs` | Data API: ninguna función en VPC (§3.6). |
-| Costo de la base de `Dogs` y presupuesto | Aurora Serverless v2 con pausa automática; presupuesto de AWS de USD 20 al mes, ajustado en I0.3 al sumar las dos etapas (§5.1). |
+| Red de las bases PostgreSQL | Data API: ninguna función en VPC (§3.6). |
+| Costo de las bases y presupuesto | Un cluster de Aurora Serverless v2 a 0 ACU para `Auth` y `Dogs`, solo en `dev` por ahora; presupuesto de AWS de USD 20 al mes (§5.1; actualizado en I0.4). |
 | WAF | Solo en la etapa `prod`; desactivado hasta que se necesite (§3.4). |
 | Servicio de IA | Google Gemini, modelo Flash-Lite estable vigente (§3.5). |
 | Comunicación entre servicios | Consultas síncronas; escrituras por eventos con SNS, SQS y *outbox* (§4). |
 | Tiempos límite y tamaño de foto | Tabla de la sección 4.4. |
 | Quién envía cada correo | `Auth` los enlaces; `Requests` los resultados de verificación (§3.5). |
 
-Queda pendiente el diseño detallado de claves e índices de DynamoDB (propuesta preliminar en `adog_MS.md`), que se resuelve en I0.4b.
+Queda pendiente el diseño detallado de claves e índices de DynamoDB de `Requests` y de las sesiones de `Auth` (propuesta preliminar en `adog_MS.md`), que se resuelve en I0.4b.
+
+### 7.1. Decisiones tomadas en I0.4
+
+| Punto | Decisión |
+|---|---|
+| Base de `Auth` | PostgreSQL (base `auth`) para `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA` y `REFUGIO`; DynamoDB con TTL para `SESION` y `TOKEN_CORREO` (§3.6). |
+| Cluster | Uno solo, en `adogtame-infra`, con una base por servicio y un solo secreto (§3.6). |
+| Etapas con base | Solo `dev`; `prod` se activa cuando se necesite (§3.6). |
+| *Outbox* en PostgreSQL | Sin tarea periódica; los pendientes se reenvían en la siguiente petición (§4.2). |
+| Desarrollo y pruebas | `sst dev` contra la etapa `dev`; pruebas con PGlite, sin Docker (§3.6). |
+| Ramas de los repositorios de código | `main` (producción), `dev` (integración) y `testing` (pruebas). |
 
 ---
 
@@ -371,13 +389,13 @@ Cada repositorio tiene su aplicación de SST y se enlaza como submódulo en `rep
 
 | Repositorio | Contenido | `dev` | `prod` |
 |---|---|---|---|
-| `adogtame-infra` | CloudFront (`Router`), WAF (definido, desactivado), bucket de fotos, temas SNS y rutas `/api/<servicio>` | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
+| `adogtame-infra` | CloudFront (`Router`), WAF (definido, desactivado), bucket de fotos, temas SNS, rutas `/api/<servicio>` y cluster de Aurora (solo `dev`) | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
 | `adogtame-web` | Aplicación web (React + Vite) | https://dev.adogtame.vieerr.xyz | https://adogtame.vieerr.xyz |
 | `adogtame-auth-ms` | Microservicio `Auth` | https://auth-api.dev.adogtame.vieerr.xyz | https://auth-api.adogtame.vieerr.xyz |
 | `adogtame-dogs-ms` | Microservicio `Dogs` | https://dogs-api.dev.adogtame.vieerr.xyz | https://dogs-api.adogtame.vieerr.xyz |
 | `adogtame-requests-ms` | Microservicio `Requests` | https://requests-api.dev.adogtame.vieerr.xyz | https://requests-api.adogtame.vieerr.xyz |
 | `adogtame-recommendation-ms` | Microservicio `Recommendation` | https://recommendation-api.dev.adogtame.vieerr.xyz | https://recommendation-api.adogtame.vieerr.xyz |
 
-- **Orden de despliegue:** primero `adogtame-infra` (publica en SSM el ID de la distribución y el nombre del bucket de fotos), luego `adogtame-web` y los microservicios.
+- **Orden de despliegue:** primero `adogtame-infra` (publica en SSM el ID de la distribución, el nombre del bucket de fotos, los temas SNS y, en las etapas con base, el cluster de Aurora), luego `adogtame-web` y los microservicios.
 - **DNS:** los dominios son registros de la zona `vieerr.xyz` en Route 53; SST crea los registros y los certificados.
 - **Cuenta:** perfil de AWS `bier-personal`, región us-east-1.

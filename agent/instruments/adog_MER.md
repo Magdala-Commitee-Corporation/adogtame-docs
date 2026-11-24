@@ -192,12 +192,13 @@ Cada microservicio es **dueño de sus datos**: tiene **su propia base de datos**
 
 | Microservicio | Almacén | Entidades |
 |---|---|---|
-| `Auth` | Amazon DynamoDB | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` |
-| `Dogs` | PostgreSQL (Amazon Aurora Serverless), relacional | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` |
+| `Auth` | PostgreSQL (Amazon Aurora Serverless, base `auth`), relacional | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO` |
+| `Auth` (sesiones) | Amazon DynamoDB | `TOKEN_CORREO`, `SESION` |
+| `Dogs` | PostgreSQL (Amazon Aurora Serverless, base `dogs`), relacional | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` |
 | `Requests` | Amazon DynamoDB | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` |
 | `Recommendation` | Amazon DynamoDB | `PERFIL_ADOPTANTE` |
 
-Este documento es el modelo **conceptual** y global. La implementación relacional (restricciones `CHECK`, `UNIQUE` y claves foráneas del diccionario) aplica a `Dogs`; en los servicios con DynamoDB las mismas reglas se garantizan con escrituras condicionales, transacciones dentro de la misma tabla y validación en el servicio. Las entidades se agrupan o se incrustan según los accesos de cada servicio (por ejemplo `USUARIO`, `USUARIO_ROL`, `PERSONA` o `REFUGIO` en un mismo registro de `Auth`); esa correspondencia está en `adog_MS.md`.
+Este documento es el modelo **conceptual** y global. La implementación relacional (restricciones `CHECK`, `UNIQUE` y claves foráneas del diccionario) aplica a `Auth` y `Dogs`, solo entre tablas de la misma base; en las tablas DynamoDB las mismas reglas se garantizan con escrituras condicionales, transacciones dentro de la misma tabla y validación en el servicio. `TOKEN_CORREO` y `SESION` viven en DynamoDB, así que su referencia a `USUARIO` la controla `Auth`. La correspondencia de cada entidad con su tabla está en `adog_MS.md`.
 
 Las relaciones del diagrama que cruzan de una base a otra se tratan como **referencias lógicas**: el identificador se guarda, pero la integridad la controla la aplicación y no la base de datos. El dato referenciado se pide al servicio dueño, en lote, al consultarlo.
 
