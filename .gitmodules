@@ -1,0 +1,18 @@
+[submodule "repos/adogtame-infra"]
+	path = repos/adogtame-infra
+	url = https://github.com/Magdala-Commitee-Corporation/adogtame-infra.git
+[submodule "repos/adogtame-web"]
+	path = repos/adogtame-web
+	url = https://github.com/Magdala-Commitee-Corporation/adogtame-web.git
+[submodule "repos/adogtame-auth-ms"]
+	path = repos/adogtame-auth-ms
+	url = https://github.com/Magdala-Commitee-Corporation/adogtame-auth-ms.git
+[submodule "repos/adogtame-dogs-ms"]
+	path = repos/adogtame-dogs-ms
+	url = https://github.com/Magdala-Commitee-Corporation/adogtame-dogs-ms.git
+[submodule "repos/adogtame-requests-ms"]
+	path = repos/adogtame-requests-ms
+	url = https://github.com/Magdala-Commitee-Corporation/adogtame-requests-ms.git
+[submodule "repos/adogtame-recommendation-ms"]
+	path = repos/adogtame-recommendation-ms
+	url = https://github.com/Magdala-Commitee-Corporation/adogtame-recommendation-ms.git
