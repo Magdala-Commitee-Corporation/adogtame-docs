@@ -478,7 +478,7 @@ Para no recargar los diagramas, estos elementos se introducen al construir:
 | Tipo | Rol | Ejemplos |
 |---|---|---|
 | Servicios de aplicación (módulos de funciones) | Uno por microservicio de `adog_ARCH.md` (`Requests` con dos módulos: adopción y verificación); orquestan las funciones de dominio, autorizan por rol y propiedad del recurso (RNF-04), llaman a otros servicios con el cliente interno y controlan la transacción dentro de su base de datos. | `Auth`, `Dogs`, `Requests`, `Recommendation` |
-| Funciones de acceso a datos | Leen y escriben en la base de datos **propia del servicio** (PostgreSQL en `Dogs`; DynamoDB en los demás) con consultas parametrizadas u ORM, o expresiones con valores enlazados (RNF-20); devuelven datos de dominio. | `buscarUsuarioPorCorreo`, `guardarPerro`, `listarSolicitudesPendientes` |
+| Funciones de acceso a datos | Leen y escriben en la base de datos **propia del servicio** (PostgreSQL en `Auth` y `Dogs`; DynamoDB en las sesiones de `Auth`, `Requests` y `Recommendation`) con consultas parametrizadas u ORM, o expresiones con valores enlazados (RNF-20); devuelven datos de dominio. | `buscarUsuarioPorCorreo`, `guardarPerro`, `listarSolicitudesPendientes` |
 | Tipos de transferencia | Datos de entrada y salida de la API, ya validados y sanitizados (RNF-21). | `DatosPerro`, `DatosPerfil`, `DatosRefugio`, `RespuestasTest`, `PerfilIA`, `CandidatoIA`, `RespuestaIA`, `Imagen`, `Contacto` |
 | Manejadores | Punto de entrada de cada función Lambda; traducen la petición HTTP al servicio correspondiente. | manejador de perros, manejador de adopción |
 

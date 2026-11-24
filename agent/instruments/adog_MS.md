@@ -10,12 +10,12 @@
 
 | Microservicio | Ruta base | Entidades que posee (almacén) | Módulos internos | Requisitos funcionales |
 |---|---|---|---|---|
-| `Auth` | `/auth` | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO`, `TOKEN_CORREO`, `SESION` (DynamoDB) | cuentas, sesiones, perfiles, administración de usuarios | RF-03 a RF-05, RF-07 a RF-11, RF-26 a RF-28, RF-31, RF-34 |
+| `Auth` | `/auth` | `USUARIO`, `ROL`, `USUARIO_ROL`, `PERSONA`, `REFUGIO` (PostgreSQL); `TOKEN_CORREO`, `SESION` (DynamoDB) | cuentas, sesiones, perfiles, administración de usuarios | RF-03 a RF-05, RF-07 a RF-11, RF-26 a RF-28, RF-31, RF-34 |
 | `Dogs` | `/dogs` | `PERRO`, `FOTO_PERRO`, `RAZA`, `COLOR`, `FAVORITO` (PostgreSQL) | perros, catálogos, favoritos | RF-01, RF-02, RF-12, RF-19 a RF-21, RF-23, RF-29, RF-30, RF-32, RF-33 |
 | `Requests` | `/requests` | `SOLICITUD_ADOPCION`, `SOLICITUD_VERIFICACION` (DynamoDB) | adopción, verificación | RF-06, RF-16 a RF-18, RF-22, RF-24, RF-25 |
 | `Recommendation` | `/recommendation` | `PERFIL_ADOPTANTE` (DynamoDB) | test, recomendaciones | RF-13 a RF-15 |
 
-Cada servicio es una función AWS Lambda con despliegue propio y es **dueño de sus datos**: tiene su propia base de datos y es el único que la lee y escribe. El almacenamiento es políglota: `Dogs` usa PostgreSQL (Amazon Aurora Serverless v2) y los demás usan Amazon DynamoDB (`adog_ARCH.md` §3.6). Las consultas entre servicios son síncronas (flechas punteadas) y las escrituras que cruzan servicios son eventos por SNS y SQS (flechas gruesas):
+Cada servicio es una función AWS Lambda con despliegue propio y es **dueño de sus datos**: tiene su propia base de datos y es el único que la lee y escribe. El almacenamiento es políglota: `Auth` y `Dogs` usan PostgreSQL (una base cada uno en un cluster de Amazon Aurora Serverless v2), `Auth` guarda sus sesiones en Amazon DynamoDB y `Requests` y `Recommendation` usan DynamoDB (`adog_ARCH.md` §3.6). Las consultas entre servicios son síncronas (flechas punteadas) y las escrituras que cruzan servicios son eventos por SNS y SQS (flechas gruesas):
 
 ```mermaid
 flowchart LR
@@ -102,7 +102,7 @@ Se calculan al consultar: la edad del perro, la lista de recomendaciones (RN-47)
 - **Datos replicados mínimos** (`adog_MER.md`): `id_publicador` en la solicitud de adopción y la marca `publicador_eliminado` en el perro.
 - **Sin transacciones entre servicios:** solo se garantizan transacciones dentro de la base de cada servicio. Las operaciones que cruzan servicios usan idempotencia y reintento (sección 8) y pueden dejar una inconsistencia temporal entre un paso y otro.
 - **Unicidad:** cada regla de unicidad vive en la base del servicio dueño (el correo en `Auth`; las pendientes en `Requests`). Entre servicios solo hay comprobaciones por llamada, con una carrera posible que se documenta en el flujo F1.
-- **DynamoDB:** el diseño de cada servicio parte de sus accesos; las claves e índices de las secciones 3.2, 5.2 y 6.2 son una **propuesta preliminar** que se confirma durante el incremento de cimientos. Las lecturas que sostienen una unicidad (candados) son fuertemente consistentes. Las claves llevan prefijo de tipo (por ejemplo `USER#`) y las expiraciones usan el TTL nativo.
+- **DynamoDB:** el diseño de cada tabla parte de sus accesos; las claves e índices de las secciones 3.2 (sesiones), 5.2 y 6.2 son una **propuesta preliminar** que se confirma durante el incremento de cimientos. Las lecturas que sostienen una unicidad (candados) son fuertemente consistentes. Las claves llevan prefijo de tipo (por ejemplo `USER#`) y las expiraciones usan el TTL nativo.
 
 ---
 
@@ -122,16 +122,27 @@ Es dueño de **quién es cada usuario y qué puede hacer**: cuentas, credenciale
 
 Invariantes: todo usuario tiene exactamente un rol; el perfil corresponde al rol; siempre hay al menos un administrador activo (RN-11).
 
-**Almacenamiento (Amazon DynamoDB, una tabla `auth`).** Propuesta preliminar:
+**Almacenamiento relacional (PostgreSQL, base `auth` en el cluster de Aurora, `adog_ARCH.md` §3.6).** Sigue el diccionario de `adog_MER.md` §4 con sus claves foráneas, `UNIQUE` y `CHECK`, **solo entre tablas de la base `auth`**. El esquema vive en el repositorio `adogtame-auth-ms` como migraciones de Drizzle.
 
-| Elemento | Clave (PK / SK) | Contenido | Para qué |
+| Tabla | Clave | Restricciones y notas |
+|---|---|---|
+| `usuario` | `id_usuario` (UUID) | Índice único sobre `lower(correo)`: el correo no se repite ni se libera al eliminar la cuenta. `contrasena_hash` vacío hasta que se defina (scrypt con sal). Borrado lógico con `eliminado` y `fecha_eliminacion`. |
+| `rol` | `id_rol` (SMALLINT) | Catálogo fijo de 4 valores (MIEMBRO, RESCATISTA, REFUGIO, ADMINISTRADOR), cargado por el *seed*. |
+| `usuario_rol` | (`id_usuario`, `id_rol`) | FK a `usuario` y `rol`. Además `UNIQUE (id_usuario)`: la base garantiza que cada usuario tenga **un solo rol**. Índice por `id_rol` para los listados y el recuento de administradores. |
+| `persona` | `id_persona` (UUID) | FK y `UNIQUE` a `usuario`. `CHECK` del teléfono (10 dígitos, inicia con 09). La mayoría de edad se valida en el servicio, porque un `CHECK` con la fecha actual no es determinista. |
+| `refugio` | `id_refugio` (UUID) | FK y `UNIQUE` a `usuario`. `CHECK` del teléfono y de la página web (`http` o `https`). |
+| `outbox` | `id_evento` (UUID) | Eventos por publicar (`adog_ARCH.md` §4.2): tipo, datos, fecha y fecha de envío. Índice parcial sobre los pendientes. |
+
+Que el perfil corresponda al rol (persona para MIEMBRO, RESCATISTA y ADMINISTRADOR; refugio para REFUGIO) y que siempre quede un administrador activo (RN-11) lo controla el servicio dentro de una transacción.
+
+**Sesiones y enlaces (Amazon DynamoDB, tabla `auth-sessions`).** Propuesta preliminar (I0.4b):
+
+| Elemento | Clave (PK) | Contenido | Para qué |
 |---|---|---|---|
-| Usuario | `USER#id` / `PROFILE` | Correo, hash de la contraseña, correo confirmado, rol y su fecha de asignación, borrado lógico, fecha de registro y el perfil incrustado (persona o refugio). Reúne `USUARIO`, `USUARIO_ROL` y `PERSONA` o `REFUGIO`; `ROL` es un catálogo fijo de 4 valores en el código. | Lectura por id en una sola operación. |
-| Correo | `EMAIL#correo en minúsculas` / `OWNER` | Id del usuario. Se escribe en la misma transacción que el usuario, con la condición «no existe». | Unicidad del correo (también el de cuentas eliminadas, que no se libera). El cambio de correo mueve este elemento en una transacción. |
-| Enlace de correo | `TOKEN#hash` / `TOKEN` | Usuario, tipo, correo nuevo, fechas de creación, uso e invalidación; el TTL es la expiración. | Validar un enlace por su hash. El usuario guarda el hash vigente de cada tipo para invalidar el anterior al emitir uno nuevo. |
-| Sesión | `SESSION#hash` / `SESSION` | Usuario, fechas de creación, última actividad y cierre; el TTL limpia las expiradas. | Validar la sesión en cada petición. La última actividad se actualiza como máximo una vez por minuto para limitar las escrituras. |
+| Sesión | `SESSION#hash` | Usuario, rol, fechas de creación y última actividad; `expiraEn` (TTL) = última actividad + 30 min. | Validar la sesión en cada petición **sin despertar Aurora**. La última actividad se actualiza como máximo una vez por minuto. |
+| Enlace de correo | `TOKEN#hash` | Usuario, tipo, correo nuevo y fecha de creación; `expiraEn` (TTL) = 10 min o 24 h según el tipo. | Validar un enlace por su hash. Usarlo es un `DeleteItem` condicional (existe y no expiró): si llega dos veces, solo una funciona. |
 
-Índices secundarios: **GSI1** (`USER#id` / `SESSION#fecha`) para cerrar todas las sesiones de un usuario; **GSI2** (`ROL#rol` / nombre e id, solo cuentas activas) para los listados de rescatistas y refugios, la búsqueda del administrador por rol y el recuento de administradores activos (RN-11, con una carrera posible entre dos bajas simultáneas que se acepta). La búsqueda del administrador por nombre filtra sobre un volumen pequeño.
+Índice secundario **GSI1** (`idUsuario` / `tipo#fecha`): cerrar todas las sesiones de un usuario e invalidar el enlace anterior del mismo tipo al emitir uno nuevo. El TTL de DynamoDB borra con retraso (hasta unas 48 h), por lo que **cada lectura vuelve a comprobar `expiraEn`**; el TTL solo hace la limpieza, sin costo. Entre esta tabla y la base `auth` no hay integridad automática: al iniciar sesión y al renovarla se comprueba en PostgreSQL que la cuenta siga activa, y dar de baja una cuenta cierra sus sesiones.
 
 ### 3.3. Operaciones públicas
 
@@ -465,14 +476,16 @@ Decididos antes: los dos datos replicados (`id_publicador` y `publicador_elimina
 
 | # | Punto | Decisión |
 |---|---|---|
-| 1 | Motor relacional de `Dogs` y costo | Aurora Serverless v2 con Data API y pausa automática; presupuesto de AWS de USD 20 al mes (las dos etapas) (`adog_ARCH.md` §3.6 y §5.1). |
+| 1 | Motor relacional de `Dogs` y costo | Aurora Serverless v2 con Data API y pausa automática; presupuesto de AWS de USD 20 al mes (`adog_ARCH.md` §3.6 y §5.1). En I0.4 el mismo cluster aloja también la base de `Auth`. |
 | 2 | Quién envía cada correo | `Auth` envía todos los enlaces, incluido el aviso de aprobación del refugio; `Requests` envía los resultados de verificación (flujos F2 y F3). |
 | 3 | Solicitud de rescatista pendiente de una cuenta dada de baja | Pasa a **rechazada** al consumir `CuentaEliminada`, igual que las de adopción (RN-10). Si la cuenta se restaura, no se reabre. |
 | 4 | Orden de las fotos al publicar | Las fotos se suben antes, de una en una, con clave temporal; al crear el perro se pasan las claves (`adog_ARCH.md` §4.5). |
 | 5 | Comunicación entre servicios | Consultas síncronas; escrituras por eventos con SNS, SQS y *outbox* (sección 2.4 y `adog_ARCH.md` §4). |
 | 6 | Valores finales | Tiempos límite y tamaño máximo por foto (2 MB) en `adog_ARCH.md` §4.4; sesión en *cookie* HttpOnly. |
 
-Pendiente: el diseño de DynamoDB. Las claves e índices de las secciones 3.2, 5.2 y 6.2 son preliminares y se confirman en I0.4b. Cada tabla de `Auth` y `Requests` suma los registros de su *outbox*.
+Pendiente: el diseño de DynamoDB. Las claves e índices de las secciones 3.2 (sesiones), 5.2 y 6.2 son preliminares y se confirman en I0.4b. La tabla de `Requests` suma los registros de su *outbox*; `Auth` y `Dogs` lo guardan en una tabla `outbox` de su base PostgreSQL.
+
+En I0.4 se decidió que `Auth` use PostgreSQL (base `auth`) para cuentas, roles y perfiles, y DynamoDB solo para sesiones y enlaces (sección 3.2 y `adog_ARCH.md` §7.1).
 
 ---
 
